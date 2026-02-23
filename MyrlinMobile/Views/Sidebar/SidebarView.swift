@@ -24,8 +24,10 @@ struct SidebarView: View {
                 .listRowBackground(Color.clear)
             } else {
                 ForEach(workspaces) { workspace in
-                    WorkspaceRow(workspace: workspace)
-                        .tag(workspace)
+                    NavigationLink(value: workspace) {
+                        WorkspaceRow(workspace: workspace)
+                    }
+                    .tag(workspace)
                 }
             }
         }

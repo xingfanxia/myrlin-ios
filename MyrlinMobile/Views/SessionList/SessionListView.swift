@@ -14,8 +14,10 @@ struct SessionListView: View {
                     .listRowBackground(Color.clear)
             } else {
                 ForEach(sessions) { session in
-                    SessionRow(session: session)
-                        .tag(session)
+                    NavigationLink(value: session) {
+                        SessionRow(session: session)
+                    }
+                    .tag(session)
                 }
             }
         }
