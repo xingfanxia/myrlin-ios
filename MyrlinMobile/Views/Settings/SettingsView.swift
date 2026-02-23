@@ -34,6 +34,10 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(result.contains("\u{2713}") ? .green : .red)
                 }
+
+                NavigationLink("Usage & Cost") { CostView() }
+                NavigationLink("Tunnels") { TunnelView() }
+                NavigationLink("Discover Sessions") { DiscoverView() }
             }
 
             Section("Appearance") {
