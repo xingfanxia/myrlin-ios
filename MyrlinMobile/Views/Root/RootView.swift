@@ -16,7 +16,6 @@ struct RootView: View {
 /// Main navigation root: iPad gets NavigationSplitView, iPhone gets NavigationStack.
 struct MainView: View {
     @EnvironmentObject var appState: AppState
-    @StateObject private var sseClient = SSEClient()
     @State private var selectedWorkspace: Workspace? = nil
     @State private var selectedSession: Session? = nil
 
@@ -28,8 +27,6 @@ struct MainView: View {
                 iPhoneLayout
             }
         }
-        .onAppear { sseClient.connect() }
-        .onDisappear { sseClient.disconnect() }
     }
 
     private var iPadLayout: some View {

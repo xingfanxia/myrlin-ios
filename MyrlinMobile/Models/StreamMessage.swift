@@ -1,152 +1,199 @@
 import Foundation
 
-/// Represents a single message from the claude stream-json output format.
-/// Each line from claude's stdout is parsed into one of these cases.
+/// Represents a single renderable unit from the claude stream-json output.
+/// One API event (a line of JSONL) can produce MULTIPLE StreamMessages via parseAll().
 struct StreamMessage: Identifiable {
     let id: UUID = UUID()
     let type: MessageType
     let timestamp: Date = Date()
 
     enum MessageType {
+        // Content blocks from assistant messages
         case assistantText(content: String)
-        case toolUse(name: String, inputJSON: String)
-        case toolResult(content: String, toolUseId: String?)
         case thinking(content: String)
+        case toolUse(name: String, toolUseId: String, inputJSON: String)
+
+        // Tool results from user messages
+        case toolResult(content: String, toolUseId: String?, isError: Bool)
+
+        // User-originated
         case userMessage(content: String)
+
+        // System events
+        case systemInit(model: String, tools: [String], cwd: String?)
         case systemMessage(content: String, subtype: String)
+
+        // Turn result / stats
         case stats(inputTokens: Int, outputTokens: Int, cost: Double)
-        case raw(json: [String: Any])
     }
 }
 
-extension StreamMessage: Decodable {
-    enum CodingKeys: String, CodingKey {
-        case type, role, content, subtype
+// MARK: - Local user message injection
+
+extension StreamMessage {
+    init(localUserMessage text: String) {
+        self.type = .userMessage(content: text)
     }
+}
 
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let msgType = try container.decodeIfPresent(String.self, forKey: .type) ?? "unknown"
+// MARK: - Multi-message parser (one JSONL line → [StreamMessage])
 
-        switch msgType {
+extension StreamMessage {
+    /// Parse a single JSONL line into zero or more StreamMessages.
+    /// One assistant event with N content blocks → N StreamMessages.
+    static func parseAll(from data: Data) -> [StreamMessage] {
+        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let eventType = obj["type"] as? String else { return [] }
+
+        switch eventType {
+
         case "assistant":
-            let content = try Self.extractAssistantContent(from: decoder)
-            self.type = .assistantText(content: content)
+            return parseAssistantEvent(obj)
 
-        case "human", "user":
-            let content = try Self.extractTextContent(from: decoder)
-            self.type = .userMessage(content: content)
-
-        case "tool_use":
-            let name = try Self.extractToolName(from: decoder)
-            let input = try Self.extractToolInput(from: decoder)
-            self.type = .toolUse(name: name, inputJSON: input)
-
-        case "tool_result":
-            let content = try Self.extractTextContent(from: decoder)
-            self.type = .toolResult(content: content, toolUseId: nil)
-
-        case "thinking":
-            let content = try Self.extractTextContent(from: decoder)
-            self.type = .thinking(content: content)
+        case "user", "human":
+            return parseUserEvent(obj)
 
         case "result":
-            let stats = try Self.extractStats(from: decoder)
-            self.type = stats
+            return parseResultEvent(obj).map { [$0] } ?? []
 
         case "system":
-            let content = try Self.extractTextContent(from: decoder)
-            let subtype = try container.decodeIfPresent(String.self, forKey: .subtype) ?? "info"
-            self.type = .systemMessage(content: content, subtype: subtype)
+            return parseSystemEvent(obj).map { [$0] } ?? []
 
         default:
-            self.type = .raw(json: [:])
+            return []
         }
     }
 
-    // MARK: - Content Extractors
+    // MARK: - Assistant event → content blocks
 
-    private static func extractAssistantContent(from decoder: Decoder) throws -> String {
-        // claude stream-json: {type:"assistant", message:{content:[{type:"text",text:"..."}]}}
-        struct Outer: Decodable {
-            struct Msg: Decodable {
-                struct Block: Decodable {
-                    let type: String
-                    let text: String?
+    private static func parseAssistantEvent(_ obj: [String: Any]) -> [StreamMessage] {
+        guard let message = obj["message"] as? [String: Any],
+              let contentBlocks = message["content"] as? [[String: Any]] else {
+            // Flat format fallback: {type:"assistant", content:"..."}
+            if let text = obj["content"] as? String, !text.isEmpty {
+                return [StreamMessage(type: .assistantText(content: text))]
+            }
+            return []
+        }
+
+        var results: [StreamMessage] = []
+        for block in contentBlocks {
+            guard let blockType = block["type"] as? String else { continue }
+
+            switch blockType {
+            case "text":
+                if let text = block["text"] as? String, !text.isEmpty {
+                    results.append(StreamMessage(type: .assistantText(content: text)))
                 }
-                let content: [Block]?
-                let role: String?
-            }
-            let message: Msg?
-            // Also handle flat content string
-            let content: String?
-        }
-        let outer = try Outer(from: decoder)
-        if let blocks = outer.message?.content {
-            return blocks.compactMap { $0.type == "text" ? $0.text : nil }.joined()
-        }
-        return outer.content ?? ""
-    }
 
-    private static func extractTextContent(from decoder: Decoder) throws -> String {
-        struct Outer: Decodable { let content: String? }
-        let outer = try Outer(from: decoder)
-        return outer.content ?? ""
-    }
+            case "thinking":
+                // Thinking blocks use field "thinking", not "text"
+                if let thinking = block["thinking"] as? String, !thinking.isEmpty {
+                    results.append(StreamMessage(type: .thinking(content: thinking)))
+                }
 
-    private static func extractToolName(from decoder: Decoder) throws -> String {
-        struct Outer: Decodable { let name: String? }
-        return (try? Outer(from: decoder).name) ?? "unknown_tool"
-    }
+            case "tool_use":
+                let name = block["name"] as? String ?? "unknown_tool"
+                let toolUseId = block["id"] as? String ?? ""
+                let inputJSON: String
+                if let input = block["input"],
+                   let inputData = try? JSONSerialization.data(withJSONObject: input, options: .prettyPrinted),
+                   let str = String(data: inputData, encoding: .utf8) {
+                    inputJSON = str
+                } else {
+                    inputJSON = "{}"
+                }
+                results.append(StreamMessage(type: .toolUse(name: name, toolUseId: toolUseId, inputJSON: inputJSON)))
 
-    private static func extractToolInput(from decoder: Decoder) throws -> String {
-        struct Outer: Decodable { let input: AnyCodable? }
-        if let input = (try? Outer(from: decoder).input) {
-            if let data = try? JSONEncoder().encode(input),
-               let str = String(data: data, encoding: .utf8) {
-                return str
+            default:
+                break
             }
         }
-        return "{}"
+        return results
     }
 
-    private static func extractStats(from decoder: Decoder) throws -> MessageType {
-        struct Outer: Decodable {
-            let total_input_tokens: Int?
-            let total_output_tokens: Int?
-            let total_cost: Double?
-        }
-        let outer = try Outer(from: decoder)
-        return .stats(
-            inputTokens: outer.total_input_tokens ?? 0,
-            outputTokens: outer.total_output_tokens ?? 0,
-            cost: outer.total_cost ?? 0
-        )
-    }
-}
+    // MARK: - User event → tool results
 
-// Helper for arbitrary JSON values
-struct AnyCodable: Codable {
-    let value: Any
-    init(_ value: Any) { self.value = value }
-    init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        if let v = try? container.decode(String.self) { value = v }
-        else if let v = try? container.decode(Int.self) { value = v }
-        else if let v = try? container.decode(Double.self) { value = v }
-        else if let v = try? container.decode(Bool.self) { value = v }
-        else if let v = try? container.decode([String: AnyCodable].self) { value = v }
-        else if let v = try? container.decode([AnyCodable].self) { value = v }
-        else { value = "" }
-    }
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.singleValueContainer()
-        switch value {
-        case let v as String: try container.encode(v)
-        case let v as Int: try container.encode(v)
-        case let v as Double: try container.encode(v)
-        case let v as Bool: try container.encode(v)
-        default: try container.encode(String(describing: value))
+    private static func parseUserEvent(_ obj: [String: Any]) -> [StreamMessage] {
+        guard let message = obj["message"] as? [String: Any],
+              let contentBlocks = message["content"] as? [[String: Any]] else {
+            // Flat user message (rare / local injection)
+            if let text = obj["content"] as? String, !text.isEmpty {
+                return [StreamMessage(type: .userMessage(content: text))]
+            }
+            return []
         }
+
+        var results: [StreamMessage] = []
+        for block in contentBlocks {
+            guard let blockType = block["type"] as? String else { continue }
+
+            switch blockType {
+            case "tool_result":
+                let toolUseId = block["tool_use_id"] as? String
+                let isError = block["is_error"] as? Bool ?? false
+                let content = extractToolResultContent(block["content"])
+                if !content.isEmpty {
+                    results.append(StreamMessage(type: .toolResult(
+                        content: content, toolUseId: toolUseId, isError: isError)))
+                }
+
+            case "text":
+                // Human text turn
+                if let text = block["text"] as? String, !text.isEmpty {
+                    results.append(StreamMessage(type: .userMessage(content: text)))
+                }
+
+            default:
+                break
+            }
+        }
+        return results
+    }
+
+    /// Tool result content can be a string, or an array of content blocks.
+    private static func extractToolResultContent(_ raw: Any?) -> String {
+        if let str = raw as? String { return str }
+        if let blocks = raw as? [[String: Any]] {
+            return blocks.compactMap { block -> String? in
+                guard block["type"] as? String == "text" else { return nil }
+                return block["text"] as? String
+            }.joined(separator: "\n")
+        }
+        return ""
+    }
+
+    // MARK: - Result / stats event
+
+    private static func parseResultEvent(_ obj: [String: Any]) -> StreamMessage? {
+        let cost = (obj["total_cost_usd"] as? Double) ?? (obj["cost_usd"] as? Double) ?? 0
+        var inputTokens = 0
+        var outputTokens = 0
+        if let usage = obj["usage"] as? [String: Any] {
+            inputTokens = usage["input_tokens"] as? Int ?? 0
+            outputTokens = usage["output_tokens"] as? Int ?? 0
+        }
+        return StreamMessage(type: .stats(
+            inputTokens: inputTokens, outputTokens: outputTokens, cost: cost))
+    }
+
+    // MARK: - System event
+
+    private static func parseSystemEvent(_ obj: [String: Any]) -> StreamMessage? {
+        let subtype = obj["subtype"] as? String ?? ""
+
+        if subtype == "init" {
+            let model = obj["model"] as? String ?? "unknown"
+            let tools = obj["tools"] as? [String] ?? []
+            let cwd = obj["cwd"] as? String
+            return StreamMessage(type: .systemInit(model: model, tools: tools, cwd: cwd))
+        }
+
+        // turn_complete is handled by MobileSessionClient separately; skip rendering it
+        if subtype == "turn_complete" { return nil }
+
+        let content = obj["content"] as? String ?? obj["message"] as? String ?? ""
+        if content.isEmpty && subtype.isEmpty { return nil }
+        return StreamMessage(type: .systemMessage(content: content, subtype: subtype))
     }
 }

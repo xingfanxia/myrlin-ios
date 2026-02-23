@@ -7,41 +7,39 @@ struct MessageBubble: View {
 
     var body: some View {
         switch message.type {
-        case .assistantText(let content):
+
+        case .assistantText(let content) where !content.isEmpty:
             assistantBubble(content: content)
 
-        case .userMessage(let content):
+        case .userMessage(let content) where !content.isEmpty:
             userBubble(content: content)
 
         case .thinking(let content):
             thinkingCard(content: content)
 
-        case .toolUse(let name, let input):
-            toolCard(name: name, input: input)
+        case .toolUse(let name, let toolUseId, let inputJSON):
+            toolUseCard(name: name, toolUseId: toolUseId, inputJSON: inputJSON)
 
-        case .toolResult(let content, _):
-            toolResultCard(content: content)
+        case .toolResult(let content, _, let isError) where !content.isEmpty:
+            toolResultCard(content: content, isError: isError)
 
-        case .systemMessage(let content, let subtype):
+        case .systemInit(let model, let tools, let cwd):
+            systemInitCard(model: model, tools: tools, cwd: cwd)
+
+        case .systemMessage(let content, let subtype) where !content.isEmpty:
             systemLabel(content: content, subtype: subtype)
 
-        case .stats:
-            EmptyView()  // Stats handled by StatsBar
-
-        case .raw:
+        default:
             EmptyView()
         }
     }
 
-    // MARK: - Bubble Styles
+    // MARK: - Assistant bubble
 
     private func assistantBubble(content: String) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text(content)
-                    .font(.body)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                MarkdownWithCodeBlocks(text: content)
             }
             .padding(12)
             .background(Color(.systemBackground))
@@ -50,9 +48,16 @@ struct MessageBubble: View {
                     .stroke(Color(.systemGray5), lineWidth: 1)
             )
             .cornerRadius(12)
+            .contextMenu {
+                Button { UIPasteboard.general.string = content } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+            }
             Spacer(minLength: 40)
         }
     }
+
+    // MARK: - User bubble
 
     private func userBubble(content: String) -> some View {
         HStack {
@@ -63,106 +68,118 @@ struct MessageBubble: View {
                 .padding(12)
                 .background(Color.blue)
                 .cornerRadius(12)
+                .contextMenu {
+                    Button { UIPasteboard.general.string = content } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+                }
         }
     }
+
+    // MARK: - Thinking card
 
     private func thinkingCard(content: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
-            } label: {
-                HStack {
-                    Image(systemName: "brain")
-                        .foregroundStyle(.purple)
-                    Text("Thinking...")
-                        .font(.caption.italic())
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(10)
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                Text(content)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding([.horizontal, .bottom], 10)
-            }
+        CollapsibleCard(
+            isExpanded: $isExpanded,
+            icon: "brain",
+            iconColor: .purple,
+            title: "Thinking",
+            titleStyle: .captionItalic
+        ) {
+            Text(content)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding([.horizontal, .bottom], 10)
         }
         .background(Color(.systemGray6))
         .cornerRadius(10)
     }
 
-    private func toolCard(name: String, input: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
-            } label: {
-                HStack {
-                    Image(systemName: toolIcon(for: name))
-                        .foregroundStyle(.orange)
-                    Text(name)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(10)
-            }
-            .buttonStyle(.plain)
+    // MARK: - Tool use card
 
-            if isExpanded {
-                Divider()
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text(prettyPrint(input))
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .padding(10)
-                }
-            }
-        }
-        .background(Color(.systemGray6))
-        .cornerRadius(10)
-    }
+    private func toolUseCard(name: String, toolUseId: String, inputJSON: String) -> some View {
+        let isSubagent = name == "Task"
+        let isAgentTeam = name == "Task" && inputJSON.contains("\"subagent_type\"")
 
-    private func toolResultCard(content: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
-            } label: {
-                HStack {
-                    Image(systemName: "checkmark.circle")
-                        .foregroundStyle(.green)
-                    Text("Tool Result")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(10)
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                Divider()
-                Text(content)
+        return CollapsibleCard(
+            isExpanded: $isExpanded,
+            icon: isSubagent ? (isAgentTeam ? "person.3.fill" : "person.fill.badge.plus") : toolIcon(for: name),
+            iconColor: isSubagent ? .indigo : .orange,
+            title: isSubagent ? subagentTitle(from: inputJSON) : name,
+            titleStyle: .captionMono,
+            badge: isSubagent ? "subagent" : nil
+        ) {
+            Divider()
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(inputJSON)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
                     .padding(10)
-                    .lineLimit(20)
+            }
+        }
+        .background(isSubagent ? Color.indigo.opacity(0.08) : Color(.systemGray6))
+        .cornerRadius(10)
+    }
+
+    // MARK: - Tool result card
+
+    private func toolResultCard(content: String, isError: Bool) -> some View {
+        let isDiff = content.hasPrefix("diff --git") || content.contains("\n--- a/")
+        let isManyLines = content.components(separatedBy: "\n").count > 8
+
+        return CollapsibleCard(
+            isExpanded: $isExpanded,
+            icon: isError ? "xmark.circle" : (isDiff ? "arrow.triangle.2.circlepath" : "checkmark.circle"),
+            iconColor: isError ? .red : (isDiff ? .teal : .green),
+            title: isError ? "Tool Error" : (isDiff ? "Diff" : "Tool Result"),
+            titleStyle: .caption
+        ) {
+            Divider()
+            if isDiff {
+                DiffView(text: content)
+                    .padding(10)
+            } else {
+                Text(content)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(isError ? .red : .secondary)
+                    .padding(10)
+                    .lineLimit(isManyLines ? 30 : nil)
             }
         }
         .background(Color(.systemGray6))
         .cornerRadius(10)
     }
+
+    // MARK: - System init card
+
+    private func systemInitCard(model: String, tools: [String], cwd: String?) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "cpu")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model)
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                if let cwd {
+                    Text((cwd as NSString).abbreviatingWithTildeInPath)
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            Text("\(tools.count) tools")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color(.systemGray6))
+        .cornerRadius(8)
+    }
+
+    // MARK: - System label
 
     private func systemLabel(content: String, subtype: String) -> some View {
         HStack {
@@ -179,23 +196,181 @@ struct MessageBubble: View {
     // MARK: - Helpers
 
     private func toolIcon(for name: String) -> String {
-        switch name.lowercased() {
-        case _ where name.lowercased().contains("bash"): return "terminal"
-        case _ where name.lowercased().contains("file"), _ where name.lowercased().contains("read"): return "doc.text"
-        case _ where name.lowercased().contains("write"): return "pencil"
-        case _ where name.lowercased().contains("search"): return "magnifyingglass"
-        case _ where name.lowercased().contains("web"): return "globe"
-        default: return "wrench"
+        let lower = name.lowercased()
+        if lower.contains("bash") || lower.contains("shell") { return "terminal" }
+        if lower.contains("read") || lower.contains("file") { return "doc.text" }
+        if lower.contains("write") || lower.contains("edit") { return "pencil" }
+        if lower.contains("search") || lower.contains("grep") { return "magnifyingglass" }
+        if lower.contains("web") || lower.contains("fetch") { return "globe" }
+        if lower.contains("glob") { return "folder.badge.questionmark" }
+        if lower.contains("notebook") { return "book" }
+        return "wrench.and.screwdriver"
+    }
+
+    private func subagentTitle(from inputJSON: String) -> String {
+        guard let data = inputJSON.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return "Task"
+        }
+        if let subagentType = obj["subagent_type"] as? String {
+            return "Task · \(subagentType)"
+        }
+        if let description = obj["description"] as? String {
+            return String(description.prefix(40))
+        }
+        return "Task"
+    }
+}
+
+// MARK: - Collapsible card (shared shell)
+
+private struct CollapsibleCard<Content: View>: View {
+    @Binding var isExpanded: Bool
+    let icon: String
+    let iconColor: Color
+    let title: String
+    let titleStyle: TitleStyle
+    var badge: String? = nil
+    @ViewBuilder let content: () -> Content
+
+    enum TitleStyle { case caption, captionMono, captionItalic }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: icon).foregroundStyle(iconColor)
+                    titleText
+                    if let badge {
+                        Text(badge)
+                            .font(.caption2)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(iconColor.opacity(0.15))
+                            .foregroundStyle(iconColor)
+                            .cornerRadius(4)
+                    }
+                    Spacer()
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(10)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded { content() }
         }
     }
 
-    private func prettyPrint(_ json: String) -> String {
-        guard let data = json.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data),
-              let pretty = try? JSONSerialization.data(withJSONObject: obj, options: .prettyPrinted),
-              let str = String(data: pretty, encoding: .utf8) else {
-            return json
+    @ViewBuilder
+    private var titleText: some View {
+        switch titleStyle {
+        case .caption:
+            Text(title).font(.caption).foregroundStyle(.secondary)
+        case .captionMono:
+            Text(title).font(.caption.monospaced()).foregroundStyle(.primary)
+        case .captionItalic:
+            Text(title).font(.caption.italic()).foregroundStyle(.secondary)
         }
-        return str
+    }
+}
+
+// MARK: - Diff Renderer
+
+/// Colors +/- lines in diff output like a terminal.
+struct DiffView: View {
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                Text(line.text)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(line.color)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private struct DiffLine {
+        let text: String
+        let color: Color
+    }
+
+    private var lines: [DiffLine] {
+        text.components(separatedBy: "\n").map { line in
+            if line.hasPrefix("+") && !line.hasPrefix("+++") {
+                return DiffLine(text: line, color: .green)
+            } else if line.hasPrefix("-") && !line.hasPrefix("---") {
+                return DiffLine(text: line, color: .red)
+            } else if line.hasPrefix("@@") {
+                return DiffLine(text: line, color: .blue)
+            } else if line.hasPrefix("diff ") || line.hasPrefix("index ") {
+                return DiffLine(text: line, color: .secondary)
+            } else {
+                return DiffLine(text: line, color: .primary)
+            }
+        }
+    }
+}
+
+// MARK: - Markdown with Code Blocks
+
+struct MarkdownWithCodeBlocks: View {
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                if segment.isCode {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        Text(segment.text)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.primary)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .background(Color(.systemGray6))
+                    .cornerRadius(6)
+                } else if !segment.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if let attributed = try? AttributedString(markdown: segment.text) {
+                        Text(attributed)
+                            .font(.body)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text(segment.text)
+                            .font(.body)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    private struct Segment { let text: String; let isCode: Bool }
+
+    private var segments: [Segment] {
+        var result: [Segment] = []
+        let parts = text.components(separatedBy: "```")
+        for (i, part) in parts.enumerated() {
+            if i % 2 == 0 {
+                result.append(Segment(text: part, isCode: false))
+            } else {
+                var lines = part.components(separatedBy: "\n")
+                if let first = lines.first {
+                    let hint = first.trimmingCharacters(in: .whitespaces)
+                    if !hint.isEmpty && hint.range(of: "^[a-zA-Z0-9+#._-]+$", options: .regularExpression) != nil {
+                        lines = Array(lines.dropFirst())
+                    }
+                }
+                result.append(Segment(text: lines.joined(separator: "\n"), isCode: true))
+            }
+        }
+        return result
     }
 }

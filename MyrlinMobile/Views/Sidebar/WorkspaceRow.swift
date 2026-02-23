@@ -13,8 +13,22 @@ struct WorkspaceRow: View {
             Circle()
                 .fill(accentColor)
                 .frame(width: 10, height: 10)
+                .overlay {
+                    if workspace.isActive == true {
+                        Circle()
+                            .stroke(accentColor.opacity(0.4), lineWidth: 3)
+                            .frame(width: 16, height: 16)
+                    }
+                }
             VStack(alignment: .leading, spacing: 2) {
-                Text(workspace.name).font(.body)
+                HStack(spacing: 4) {
+                    Text(workspace.name).font(.body)
+                    if workspace.isActive == true {
+                        Image(systemName: "star.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.yellow)
+                    }
+                }
                 if let count = workspace.sessionCount {
                     Text("\(count) session\(count == 1 ? "" : "s")")
                         .font(.caption)

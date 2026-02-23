@@ -20,7 +20,13 @@
     <dict>
         <key>NSAllowsArbitraryLoads</key>
         <true/>
+        <key>NSAllowsArbitraryLoadsInWebContent</key>
+        <true/>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
     </dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Myrlin connects to your local Claude Code server.</string>
     <key>UILaunchScreen</key>
     <dict/>
 </dict>

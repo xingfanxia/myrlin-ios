@@ -4,11 +4,18 @@ import WebKit
 /// Main session view with toggle between Chat (stream-json) and Terminal (WKWebView) modes.
 struct MobileSessionView: View {
     let session: Session
+    @EnvironmentObject var appState: AppState
     @StateObject private var client = MobileSessionClient()
     @State private var mode: ViewMode = .chat
     @State private var scrollToBottom: Bool = false
+    @State private var showDetail: Bool = false
 
     enum ViewMode { case chat, terminal }
+
+    /// Live session from AppState (updated by SSE), falling back to the initial value
+    private var liveSession: Session {
+        appState.sessions.first(where: { $0.id == session.id }) ?? session
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,17 +26,37 @@ struct MobileSessionView: View {
                 terminalView
             }
         }
-        .navigationTitle(session.name)
+        .navigationTitle(liveSession.name)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar { modeToggle }
+        .toolbar { toolbarContent }
         .onAppear { connectIfNeeded() }
         .onDisappear { client.disconnect() }
+        .sheet(isPresented: $showDetail) {
+            SessionDetailView(session: liveSession)
+                .environmentObject(appState)
+        }
     }
 
     // MARK: - Chat View
 
     private var chatView: some View {
         VStack(spacing: 0) {
+            // Connection status banner
+            if client.connectionState == .connecting {
+                HStack(spacing: 6) {
+                    ProgressView().scaleEffect(0.7)
+                    Text("Connecting…").font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+                .background(Color(.systemGroupedBackground))
+            } else if let err = client.error {
+                Text("⚠ \(err)").font(.caption).foregroundStyle(.red)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(Color(.systemGroupedBackground))
+            }
+
             // Message list
             ScrollViewReader { proxy in
                 ScrollView {
@@ -42,7 +69,6 @@ struct MobileSessionView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
 
-                    // Invisible spacer at bottom for auto-scroll target
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .onChange(of: client.messages.count) { _ in
@@ -50,6 +76,30 @@ struct MobileSessionView: View {
                         proxy.scrollTo("bottom")
                     }
                 }
+                .overlay {
+                    if client.messages.isEmpty && client.connectionState == .connected && client.error == nil {
+                        VStack(spacing: 12) {
+                            Image(systemName: "message").font(.largeTitle).foregroundStyle(.tertiary)
+                            Text("Session ready")
+                                .font(.headline).foregroundStyle(.secondary)
+                            Text("Type a message below to start, or switch to Terminal mode to view the existing PTY session.")
+                                .font(.caption).foregroundStyle(.tertiary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 40)
+                        }
+                    }
+                }
+            }
+
+            // Generating indicator
+            if client.isGenerating {
+                HStack(spacing: 6) {
+                    ProgressView().scaleEffect(0.7)
+                    Text("Claude is thinking…").font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
             }
 
             // Stats bar (pinned above input)
@@ -57,9 +107,9 @@ struct MobileSessionView: View {
                 StatsBar(stats: stats)
             }
 
-            // Input bar
+            // Input bar — disabled while Claude is generating a response
             InputBar(
-                isConnected: client.connectionState == .connected,
+                isConnected: client.connectionState == .connected && !client.isGenerating,
                 onSend: { text in
                     Task { try? await client.send(text: text) }
                 }
@@ -76,10 +126,17 @@ struct MobileSessionView: View {
             .edgesIgnoringSafeArea(.bottom)
     }
 
-    // MARK: - Toolbar Toggle
+    // MARK: - Toolbar
 
     @ToolbarContentBuilder
-    private var modeToggle: some ToolbarContent {
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button {
+                showDetail = true
+            } label: {
+                Image(systemName: "info.circle")
+            }
+        }
         ToolbarItem(placement: .navigationBarTrailing) {
             Picker("Mode", selection: $mode) {
                 Label("Chat", systemImage: "message").tag(ViewMode.chat)
@@ -117,10 +174,14 @@ struct TerminalWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        // Inject auth token into the web UI via JS
+        // Inject auth token into localStorage before the app JS runs.
+        // The web app reads localStorage.getItem('cwm_token') on startup.
+        let safeToken = token.replacingOccurrences(of: "\\", with: "\\\\")
+                             .replacingOccurrences(of: "'", with: "\\'")
+        let safeSessionId = sessionId.replacingOccurrences(of: "'", with: "\\'")
         let script = """
-        window.__MYRLIN_TOKEN = '\(token.replacingOccurrences(of: "'", with: "\\'"))';
-        window.__MYRLIN_SESSION_ID = '\(sessionId)';
+        localStorage.setItem('cwm_token', '\(safeToken)');
+        window.__MYRLIN_SESSION_ID = '\(safeSessionId)';
         """
         let userScript = WKUserScript(source: script,
                                       injectionTime: .atDocumentStart,
