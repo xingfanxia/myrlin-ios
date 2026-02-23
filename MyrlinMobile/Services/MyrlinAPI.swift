@@ -28,7 +28,22 @@ final class MyrlinAPI {
               (200..<300).contains(httpResponse.statusCode) else {
             throw APIError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
-        return try JSONDecoder().decode(T.self, from: data)
+        let decoder = JSONDecoder()
+        // Server returns ISO8601 dates with fractional seconds e.g. "2026-02-23T13:26:17.406Z"
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        decoder.dateDecodingStrategy = .custom { dec in
+            let container = try dec.singleValueContainer()
+            let str = try container.decode(String.self)
+            if let date = iso.date(from: str) { return date }
+            // Fallback: try without fractional seconds
+            let iso2 = ISO8601DateFormatter()
+            iso2.formatOptions = [.withInternetDateTime]
+            if let date = iso2.date(from: str) { return date }
+            throw DecodingError.dataCorruptedError(in: container,
+                debugDescription: "Invalid ISO8601 date: \(str)")
+        }
+        return try decoder.decode(T.self, from: data)
     }
 
     // MARK: - Sessions
