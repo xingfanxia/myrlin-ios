@@ -55,9 +55,9 @@ struct MainView: View {
             SidebarView(selectedWorkspace: $selectedWorkspace)
                 .navigationDestination(for: Workspace.self) { workspace in
                     SessionListView(workspace: workspace, selectedSession: $selectedSession)
-                        .navigationDestination(for: Session.self) { session in
-                            MobileSessionView(session: session)
-                        }
+                }
+                .navigationDestination(for: Session.self) { session in
+                    MobileSessionView(session: session)
                 }
         }
     }
