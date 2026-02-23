@@ -1,6 +1,6 @@
 import Foundation
 
-struct Session: Codable, Identifiable, Equatable {
+struct Session: Codable, Identifiable, Equatable, Hashable {
     let id: String
     var name: String
     var status: SessionStatus

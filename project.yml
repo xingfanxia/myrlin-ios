@@ -2,14 +2,14 @@ name: MyrlinMobile
 options:
   bundleIdPrefix: com.myrlin
   deploymentTarget:
-    iOS: "16.0"
-  xcodeVersion: "15"
+    iOS: "26.0"
+  xcodeVersion: "16"
   generateEmptyDirectories: true
 targets:
   MyrlinMobile:
     type: application
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "26.0"
     sources:
       - path: MyrlinMobile
     settings:
@@ -26,7 +26,7 @@ targets:
   MyrlinMobileTests:
     type: bundle.unit-test
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "26.0"
     sources:
       - path: MyrlinMobileTests
     dependencies:
