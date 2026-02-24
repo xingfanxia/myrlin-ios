@@ -30,7 +30,7 @@ struct MobileSessionView: View {
         .navigationTitle(liveSession.name)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
-        .onAppear { connectIfNeeded() }
+        .onAppear { Task { await connectIfNeeded() } }
         .onDisappear {
             // Save messages to cache before disconnecting so they survive navigation
             if !client.messages.isEmpty {
@@ -162,16 +162,27 @@ struct MobileSessionView: View {
 
     // MARK: - Helpers
 
-    private func connectIfNeeded() {
+    private func connectIfNeeded() async {
         guard client.connectionState == .disconnected else { return }
-        let cached = appState.messageCache[session.id] ?? []
+
+        // Use cached messages if available. Otherwise load from server JSONL
+        // when the session has a claudeSessionId (i.e. it has prior history).
+        var initialMessages = appState.messageCache[session.id] ?? []
+        if initialMessages.isEmpty, let _ = liveSession.claudeSessionId {
+            let lines = (try? await MyrlinAPI.shared.sessionHistory(session.id)) ?? []
+            for line in lines {
+                if let data = line.data(using: .utf8) {
+                    initialMessages.append(contentsOf: StreamMessage.parseAll(from: data))
+                }
+            }
+        }
+
         // Use liveSession so we pick up claudeSessionId/workingDir set after creation
-        // (e.g., by SSE session:updated or a discover import that pre-set claudeSessionId)
         client.connect(
             sessionId: liveSession.id,
             resumeSessionId: liveSession.claudeSessionId,
             workingDir: liveSession.workingDir,
-            initialMessages: cached
+            initialMessages: initialMessages
         )
     }
 

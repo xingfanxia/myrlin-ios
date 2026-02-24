@@ -165,6 +165,14 @@ final class MyrlinAPI {
                        description: description, baseBranch: baseBranch, model: model))
     }
 
+    /// Fetches raw JSONL lines for a session's Claude conversation.
+    /// Returns empty array for new sessions (not an error).
+    func sessionHistory(_ id: String) async throws -> [String] {
+        struct Wrapper: Decodable { let lines: [String] }
+        let wrapper: Wrapper = try await request("/api/sessions/\(id)/history")
+        return wrapper.lines
+    }
+
     func sessionCost(_ id: String) async throws -> SessionCost {
         struct Wrapper: Decodable { let cost: SessionCost }
         let wrapper: Wrapper = try await request("/api/sessions/\(id)/cost")
