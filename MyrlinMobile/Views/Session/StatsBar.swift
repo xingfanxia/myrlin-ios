@@ -18,10 +18,10 @@ struct StatsBar: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            Label(formatTokens(inputTokens), systemImage: "arrow.down.circle")
+            Label("\(formatTokens(inputTokens)) in", systemImage: "arrow.down.circle")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Label(formatTokens(outputTokens), systemImage: "arrow.up.circle")
+            Label("\(formatTokens(outputTokens)) out", systemImage: "arrow.up.circle")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()

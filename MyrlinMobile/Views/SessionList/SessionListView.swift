@@ -18,10 +18,19 @@ struct SessionListView: View {
     @State private var sessionToRename: Session? = nil
     @State private var renameText = ""
     @State private var error: String? = nil
+    @State private var showRecentDirs = false
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     private var sessions: [Session] {
         appState.sessions.filter { $0.workspaceId == workspace.id }
+    }
+
+    private var recentWorkingDirs: [String] {
+        var seen = Set<String>()
+        return appState.sessions.compactMap { $0.workingDir }.filter { dir in
+            guard !dir.isEmpty, !dir.hasPrefix("-") else { return false }
+            return seen.insert(dir).inserted
+        }.prefix(6).map { $0 }
     }
 
     var body: some View {
@@ -48,6 +57,7 @@ struct SessionListView: View {
                          agentTeams: $newSessionAgentTeams,
                          createWorktree: $newSessionCreateWorktree,
                          branch: $newSessionBranch, baseBranch: $newSessionBaseBranch,
+                         recentDirs: recentWorkingDirs,
                          onCreate: createSession)
         .renameSessionAlert(item: $sessionToRename, text: $renameText, onRename: renameSession)
         .sheet(isPresented: $showSearch) { SearchView(workspaceId: workspace.id) }
@@ -69,6 +79,7 @@ struct SessionListView: View {
                          agentTeams: $newSessionAgentTeams,
                          createWorktree: $newSessionCreateWorktree,
                          branch: $newSessionBranch, baseBranch: $newSessionBaseBranch,
+                         recentDirs: recentWorkingDirs,
                          onCreate: createSession)
         .renameSessionAlert(item: $sessionToRename, text: $renameText, onRename: renameSession)
         .sheet(isPresented: $showSearch) { SearchView(workspaceId: workspace.id) }
@@ -161,7 +172,9 @@ struct SessionListView: View {
                     agentTeams: newSessionAgentTeams ? true : nil
                 )
                 try? await MyrlinAPI.shared.startSession(session.id)
-                appState.sessions.append(session)
+                var launched = session
+                launched.status = .running
+                appState.sessions.append(launched)
             }
         } catch {
             self.error = error.localizedDescription
@@ -243,6 +256,7 @@ private extension View {
                          agentTeams: Binding<Bool>,
                          createWorktree: Binding<Bool>,
                          branch: Binding<String>, baseBranch: Binding<String>,
+                         recentDirs: [String],
                          onCreate: @escaping () async -> Void) -> some View {
         self.sheet(isPresented: isPresented) {
             NavigationStack {
@@ -286,6 +300,32 @@ private extension View {
                         if createWorktree.wrappedValue {
                             Text("Creates a new git worktree at the branch and opens a session inside it.")
                                 .font(.caption)
+                        }
+                    }
+
+                    if !recentDirs.isEmpty {
+                        Section("Recent Directories") {
+                            ForEach(recentDirs, id: \.self) { dir in
+                                Button {
+                                    workingDir.wrappedValue = dir
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "clock")
+                                            .foregroundStyle(.secondary)
+                                            .font(.caption)
+                                        Text(dir)
+                                            .font(.caption.monospaced())
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.head)
+                                        Spacer()
+                                        Image(systemName: "arrow.up.left")
+                                            .foregroundStyle(.tertiary)
+                                            .font(.caption2)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
 

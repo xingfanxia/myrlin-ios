@@ -4,6 +4,7 @@ struct LoginView: View {
     @EnvironmentObject var appState: AppState
     @State private var serverURL: String = "http://localhost:3456"
     @State private var password: String = ""
+    @State private var savedURLs: [String] = []
     @FocusState private var focusField: Field?
 
     enum Field { case url, password }
@@ -36,6 +37,23 @@ struct LoginView: View {
                         .focused($focusField, equals: .url)
                         .submitLabel(.next)
                         .onSubmit { focusField = .password }
+
+                    if !savedURLs.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(savedURLs, id: \.self) { url in
+                                    Button(url.replacingOccurrences(of: "http://", with: "").replacingOccurrences(of: "https://", with: "")) {
+                                        serverURL = url
+                                    }
+                                    .font(.caption)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 4)
+                                    .background(Color(.secondarySystemBackground))
+                                    .cornerRadius(12)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -75,10 +93,28 @@ struct LoginView: View {
 
             Spacer()
         }
-        .onAppear { focusField = .url }
+        .onAppear {
+            if let saved = AuthService.shared.serverURL, !saved.isEmpty {
+                serverURL = saved
+            }
+            focusField = serverURL.isEmpty ? .url : .password
+            savedURLs = UserDefaults.standard.stringArray(forKey: "savedServerURLs") ?? []
+        }
     }
 
     private func login() async {
         await appState.login(serverURL: serverURL, password: password)
+        if appState.connectionError == nil {
+            saveServerURL(serverURL)
+            savedURLs = UserDefaults.standard.stringArray(forKey: "savedServerURLs") ?? []
+        }
+    }
+
+    private func saveServerURL(_ url: String) {
+        guard !url.isEmpty else { return }
+        var saved = UserDefaults.standard.stringArray(forKey: "savedServerURLs") ?? []
+        saved.removeAll { $0 == url }
+        saved.insert(url, at: 0)
+        UserDefaults.standard.set(Array(saved.prefix(3)), forKey: "savedServerURLs")
     }
 }

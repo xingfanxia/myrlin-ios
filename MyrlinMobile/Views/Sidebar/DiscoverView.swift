@@ -31,7 +31,7 @@ struct DiscoverView: View {
                 List(projects) { project in
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(shortenPath(project.realPath.isEmpty ? project.encodedName : project.realPath))
+                            Text(displayName(for: project))
                                 .font(.callout)
                                 .lineLimit(1)
                             HStack(spacing: 8) {
@@ -65,7 +65,6 @@ struct DiscoverView: View {
                             }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
-                            .disabled(project.dirExists == false)
                         }
                     }
                     .padding(.vertical, 2)
@@ -105,18 +104,46 @@ struct DiscoverView: View {
         defer { importing.remove(project.id) }
         do {
             let wsId = appState.workspaces.first?.id ?? ""
-            let name = shortenPath(project.realPath)
+            let workingDir: String? = project.realPath.hasPrefix("/") ? project.realPath : nil
+            let name: String = {
+                if project.realPath.hasPrefix("/") {
+                    return shortenPath(project.realPath)
+                }
+                let decoded = decodedEncodedName(project.encodedName)
+                return decoded.isEmpty ? project.encodedName : decoded
+            }()
             let created = try await MyrlinAPI.shared.createSession(
                 name: name,
                 workspaceId: wsId,
-                workingDir: project.realPath
+                workingDir: workingDir
             )
             try? await MyrlinAPI.shared.startSession(created.id)
-            appState.sessions.append(created)
+            var launched = created
+            launched.status = .running
+            appState.sessions.append(launched)
             imported.insert(project.id)
         } catch {
             importErrors[project.id] = error.localizedDescription
         }
+    }
+
+    /// Returns the display name for a discovered project row.
+    /// Uses `shortenPath` for real absolute paths; decodes `encodedName` otherwise.
+    private func displayName(for project: DiscoveredProject) -> String {
+        if project.realPath.hasPrefix("/") {
+            return shortenPath(project.realPath)
+        }
+        let decoded = decodedEncodedName(project.encodedName)
+        return decoded.isEmpty ? project.encodedName : decoded
+    }
+
+    /// Decodes a Claude-encoded project name (hyphen-separated tokens) into a
+    /// human-readable label: splits by `-`, drops empty parts, takes the last 2
+    /// non-empty tokens, and joins them with `-`.
+    private func decodedEncodedName(_ encodedName: String) -> String {
+        let tokens = encodedName.split(separator: "-").map(String.init).filter { !$0.isEmpty }
+        let last2 = tokens.suffix(2)
+        return last2.joined(separator: "-")
     }
 
     private func shortenPath(_ path: String) -> String {
