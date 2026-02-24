@@ -380,11 +380,138 @@ struct DiffView: View {
     }
 }
 
-// MARK: - Markdown with Code Blocks
+// MARK: - Markdown Renderer (block + inline)
 
+/// Full block-level markdown renderer.
+/// Handles: headings (H1–H3), unordered/ordered lists, blockquotes,
+/// fenced code blocks, horizontal rules, and inline formatting
+/// (bold, italic, inline-code, links via AttributedString).
 struct MarkdownWithCodeBlocks: View {
     let text: String
     var bodyFont: Font = .body
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(Array(parsedBlocks.enumerated()), id: \.offset) { _, block in
+                blockView(block)
+            }
+        }
+    }
+
+    // MARK: - Block model
+
+    private enum MdBlock {
+        case heading(level: Int, text: String)
+        case paragraph(text: String)
+        case codeBlock(lang: String, text: String)
+        case unorderedList(items: [String])
+        case orderedList(items: [String])
+        case blockquote(text: String)
+        case horizontalRule
+    }
+
+    // MARK: - Block renderer
+
+    @ViewBuilder
+    private func blockView(_ block: MdBlock) -> some View {
+        switch block {
+
+        case .heading(let level, let text):
+            Text(text)
+                .font(headingFont(level))
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, level == 1 ? 4 : 2)
+
+        case .paragraph(let text):
+            inlineText(text)
+                .fixedSize(horizontal: false, vertical: true)
+
+        case .codeBlock(_, let code):
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(code.trimmingCharacters(in: .newlines))
+                    .font(codeFont)
+                    .foregroundStyle(.primary)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+        case .unorderedList(let items):
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text("•")
+                            .font(bodyFont)
+                            .foregroundStyle(.secondary)
+                            .frame(minWidth: 12, alignment: .center)
+                        inlineText(item)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+        case .orderedList(let items):
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
+                    HStack(alignment: .top, spacing: 6) {
+                        Text("\(idx + 1).")
+                            .font(bodyFont)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .frame(minWidth: 20, alignment: .trailing)
+                        inlineText(item)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+
+        case .blockquote(let text):
+            HStack(alignment: .top, spacing: 10) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.secondary.opacity(0.35))
+                    .frame(width: 3)
+                inlineText(text)
+                    .italic()
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.vertical, 2)
+
+        case .horizontalRule:
+            Divider()
+                .padding(.vertical, 2)
+        }
+    }
+
+    // MARK: - Inline text (bold / italic / code / links via AttributedString)
+
+    @ViewBuilder
+    private func inlineText(_ raw: String) -> some View {
+        let opts = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        if let attributed = try? AttributedString(markdown: raw, options: opts) {
+            Text(attributed)
+                .font(bodyFont)
+                .textSelection(.enabled)
+        } else {
+            Text(raw)
+                .font(bodyFont)
+                .textSelection(.enabled)
+        }
+    }
+
+    // MARK: - Fonts
+
+    private func headingFont(_ level: Int) -> Font {
+        switch level {
+        case 1: return .title2.bold()
+        case 2: return .title3.bold()
+        case 3: return .headline
+        default: return .subheadline.bold()
+        }
+    }
 
     private var codeFont: Font {
         switch bodyFont {
@@ -394,55 +521,115 @@ struct MarkdownWithCodeBlocks: View {
         }
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                if segment.isCode {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        Text(segment.text)
-                            .font(codeFont)
-                            .foregroundStyle(.primary)
-                            .padding(8)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .background(Color(.systemGray6))
-                    .cornerRadius(6)
-                } else if !segment.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    if let attributed = try? AttributedString(markdown: segment.text) {
-                        Text(attributed)
-                            .font(bodyFont)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        Text(segment.text)
-                            .font(bodyFont)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+    // MARK: - Block parser
+
+    private var parsedBlocks: [MdBlock] { parseBlocks(text) }
+
+    private func parseBlocks(_ input: String) -> [MdBlock] {
+        var result: [MdBlock] = []
+        let lines = input.components(separatedBy: "\n")
+        var i = 0
+
+        while i < lines.count {
+            let line = lines[i]
+            let t = line.trimmingCharacters(in: .whitespaces)
+
+            // Blank line
+            if t.isEmpty { i += 1; continue }
+
+            // Fenced code block
+            if t.hasPrefix("```") {
+                let lang = String(t.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+                var codeLines: [String] = []
+                i += 1
+                while i < lines.count {
+                    let cl = lines[i].trimmingCharacters(in: .whitespaces)
+                    if cl.hasPrefix("```") { i += 1; break }
+                    codeLines.append(lines[i])
+                    i += 1
                 }
+                result.append(.codeBlock(lang: lang, text: codeLines.joined(separator: "\n")))
+                continue
             }
-        }
-    }
 
-    private struct Segment { let text: String; let isCode: Bool }
+            // Headings
+            if t.hasPrefix("### ") { result.append(.heading(level: 3, text: String(t.dropFirst(4)))); i += 1; continue }
+            if t.hasPrefix("## ")  { result.append(.heading(level: 2, text: String(t.dropFirst(3)))); i += 1; continue }
+            if t.hasPrefix("# ")   { result.append(.heading(level: 1, text: String(t.dropFirst(2)))); i += 1; continue }
 
-    private var segments: [Segment] {
-        var result: [Segment] = []
-        let parts = text.components(separatedBy: "```")
-        for (i, part) in parts.enumerated() {
-            if i % 2 == 0 {
-                result.append(Segment(text: part, isCode: false))
-            } else {
-                var lines = part.components(separatedBy: "\n")
-                if let first = lines.first {
-                    let hint = first.trimmingCharacters(in: .whitespaces)
-                    if !hint.isEmpty && hint.range(of: "^[a-zA-Z0-9+#._-]+$", options: .regularExpression) != nil {
-                        lines = Array(lines.dropFirst())
-                    }
+            // Horizontal rule (--- *** ___ with optional spaces)
+            let hrCheck = t.replacingOccurrences(of: " ", with: "")
+            if hrCheck == "---" || hrCheck == "***" || hrCheck == "___" {
+                result.append(.horizontalRule); i += 1; continue
+            }
+
+            // Unordered list
+            if isULItem(t) {
+                var items: [String] = []
+                while i < lines.count && isULItem(lines[i].trimmingCharacters(in: .whitespaces)) {
+                    items.append(ulText(lines[i].trimmingCharacters(in: .whitespaces)))
+                    i += 1
                 }
-                result.append(Segment(text: lines.joined(separator: "\n"), isCode: true))
+                result.append(.unorderedList(items: items))
+                continue
+            }
+
+            // Ordered list
+            if isOLItem(t) {
+                var items: [String] = []
+                while i < lines.count && isOLItem(lines[i].trimmingCharacters(in: .whitespaces)) {
+                    items.append(olText(lines[i].trimmingCharacters(in: .whitespaces)))
+                    i += 1
+                }
+                result.append(.orderedList(items: items))
+                continue
+            }
+
+            // Blockquote
+            if t.hasPrefix(">") {
+                var qLines: [String] = []
+                while i < lines.count {
+                    let qt = lines[i].trimmingCharacters(in: .whitespaces)
+                    if !qt.hasPrefix(">") { break }
+                    qLines.append(qt.hasPrefix("> ") ? String(qt.dropFirst(2)) : String(qt.dropFirst(1)))
+                    i += 1
+                }
+                result.append(.blockquote(text: qLines.joined(separator: "\n")))
+                continue
+            }
+
+            // Paragraph — accumulate until blank line or block-level marker
+            var pLines: [String] = []
+            while i < lines.count {
+                let pt = lines[i].trimmingCharacters(in: .whitespaces)
+                if pt.isEmpty { i += 1; break }
+                let hrp = pt.replacingOccurrences(of: " ", with: "")
+                if pt.hasPrefix("```") || pt.hasPrefix("# ") || pt.hasPrefix("## ") ||
+                   pt.hasPrefix("### ") || isULItem(pt) || isOLItem(pt) || pt.hasPrefix(">") ||
+                   hrp == "---" || hrp == "***" || hrp == "___" { break }
+                pLines.append(lines[i])
+                i += 1
+            }
+            if !pLines.isEmpty {
+                result.append(.paragraph(text: pLines.joined(separator: "\n")))
             }
         }
         return result
+    }
+
+    // MARK: - List helpers
+
+    private func isULItem(_ t: String) -> Bool {
+        t.hasPrefix("- ") || t.hasPrefix("* ") || t.hasPrefix("+ ")
+    }
+    private func isOLItem(_ t: String) -> Bool {
+        t.range(of: #"^\d+\.\s"#, options: .regularExpression) != nil
+    }
+    private func ulText(_ t: String) -> String {
+        (t.hasPrefix("- ") || t.hasPrefix("* ") || t.hasPrefix("+ ")) ? String(t.dropFirst(2)) : t
+    }
+    private func olText(_ t: String) -> String {
+        guard let r = t.range(of: #"^\d+\.\s"#, options: .regularExpression) else { return t }
+        return String(t[r.upperBound...])
     }
 }
