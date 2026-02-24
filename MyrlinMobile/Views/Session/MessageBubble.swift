@@ -426,16 +426,8 @@ struct MarkdownWithCodeBlocks: View {
             inlineText(text)
                 .fixedSize(horizontal: false, vertical: true)
 
-        case .codeBlock(_, let code):
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(code.trimmingCharacters(in: .newlines))
-                    .font(codeFont)
-                    .foregroundStyle(.primary)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .background(Color(.systemGray6))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        case .codeBlock(let lang, let code):
+            CodeBlockView(lang: lang, code: code, codeFont: codeFont)
 
         case .unorderedList(let items):
             VStack(alignment: .leading, spacing: 5) {
@@ -488,18 +480,28 @@ struct MarkdownWithCodeBlocks: View {
 
     @ViewBuilder
     private func inlineText(_ raw: String) -> some View {
+        Text(styledAttributed(raw))
+            .font(bodyFont)
+            .textSelection(.enabled)
+    }
+
+    /// Parse inline markdown and tint code runs orange.
+    /// Separated from the @ViewBuilder context so `for` loops are allowed.
+    private func styledAttributed(_ raw: String) -> AttributedString {
         let opts = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
-        if let attributed = try? AttributedString(markdown: raw, options: opts) {
-            Text(attributed)
-                .font(bodyFont)
-                .textSelection(.enabled)
-        } else {
-            Text(raw)
-                .font(bodyFont)
-                .textSelection(.enabled)
+        guard var attributed = try? AttributedString(markdown: raw, options: opts) else {
+            return AttributedString(raw)
         }
+        // Collect ranges first to avoid mutating during iteration
+        let codeRanges = attributed.runs.compactMap { run -> Range<AttributedString.Index>? in
+            run.inlinePresentationIntent?.contains(.code) == true ? run.range : nil
+        }
+        for range in codeRanges {
+            attributed[range].foregroundColor = Color.orange
+        }
+        return attributed
     }
 
     // MARK: - Fonts
@@ -632,4 +634,190 @@ struct MarkdownWithCodeBlocks: View {
         guard let r = t.range(of: #"^\d+\.\s"#, options: .regularExpression) else { return t }
         return String(t[r.upperBound...])
     }
+}
+
+// MARK: - Syntax-highlighted code block
+
+private struct CodeBlockView: View {
+    let lang: String
+    let code: String
+    let codeFont: Font
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header: language pill + copy button
+            HStack(spacing: 8) {
+                if !lang.isEmpty {
+                    Text(lang.lowercased())
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Color(.systemGray4).opacity(0.6))
+                        .clipShape(Capsule())
+                }
+                Spacer()
+                Button {
+                    UIPasteboard.general.string = code
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color(.systemGray5))
+
+            Divider()
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(Array(codeLines.enumerated()), id: \.offset) { _, line in
+                        highlightedLine(line)
+                            .font(codeFont)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(10)
+            }
+        }
+        .background(Color(.systemGray6))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var codeLines: [String] {
+        code.trimmingCharacters(in: .newlines).components(separatedBy: "\n")
+    }
+
+    // Build a single `Text` from syntax tokens (concatenation preserves per-run color).
+    private func highlightedLine(_ line: String) -> Text {
+        Self.tokenize(line).reduce(Text("")) { acc, tok in
+            acc + Text(tok.text).foregroundColor(tok.color)
+        }
+    }
+
+    // MARK: - Token model
+
+    private struct SyntaxToken {
+        let text: String
+        let color: Color
+    }
+
+    // MARK: - Tokenizer
+
+    private static func tokenize(_ line: String) -> [SyntaxToken] {
+        guard !line.isEmpty else { return [] }
+
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+        // Whole-line comment
+        if trimmed.hasPrefix("//") || trimmed.hasPrefix("--") ||
+           trimmed.hasPrefix("# ") || trimmed == "#" {
+            return [SyntaxToken(text: line, color: commentColor)]
+        }
+
+        var tokens: [SyntaxToken] = []
+        var chars = Array(line)
+        var i = 0
+
+        while i < chars.count {
+            let ch = chars[i]
+
+            // Inline // comment — rest of line
+            if ch == "/" && i + 1 < chars.count && chars[i + 1] == "/" {
+                tokens.append(SyntaxToken(text: String(chars[i...]), color: commentColor))
+                break
+            }
+
+            // String literal " or '
+            if ch == "\"" || ch == "'" {
+                var str = String(ch)
+                i += 1
+                while i < chars.count {
+                    if chars[i] == "\\" && i + 1 < chars.count {
+                        str.append(chars[i]); str.append(chars[i + 1]); i += 2
+                    } else if chars[i] == ch {
+                        str.append(chars[i]); i += 1; break
+                    } else {
+                        str.append(chars[i]); i += 1
+                    }
+                }
+                tokens.append(SyntaxToken(text: str, color: stringColor))
+                continue
+            }
+
+            // Number (int or float, including hex 0x...)
+            if ch.isNumber || (ch == "0" && i + 1 < chars.count && chars[i + 1] == "x") {
+                var num = String(ch); i += 1
+                while i < chars.count && (chars[i].isHexDigit || chars[i] == "." || chars[i] == "_") {
+                    num.append(chars[i]); i += 1
+                }
+                tokens.append(SyntaxToken(text: num, color: numberColor))
+                continue
+            }
+
+            // Word (identifier or keyword)
+            if ch.isLetter || ch == "_" {
+                var word = String(ch); i += 1
+                while i < chars.count && (chars[i].isLetter || chars[i].isNumber || chars[i] == "_") {
+                    word.append(chars[i]); i += 1
+                }
+                let color = keywords.contains(word) ? keywordColor : Color(UIColor.label)
+                tokens.append(SyntaxToken(text: word, color: color))
+                continue
+            }
+
+            // Everything else (operators, punctuation, whitespace)
+            tokens.append(SyntaxToken(text: String(ch), color: Color(UIColor.label)))
+            i += 1
+        }
+
+        return tokens
+    }
+
+    // MARK: - Colors (system colors adapt to dark / light mode)
+
+    private static let keywordColor = Color(UIColor.systemBlue)
+    private static let stringColor  = Color(UIColor.systemOrange)
+    private static let commentColor = Color(UIColor.systemGreen).opacity(0.85)
+    private static let numberColor  = Color(UIColor.systemPurple)
+
+    // MARK: - Keyword set (Swift, Python, JS/TS, Go, Rust, SQL, Shell)
+
+    private static let keywords: Set<String> = [
+        // Swift
+        "var", "let", "func", "class", "struct", "enum", "protocol", "extension",
+        "import", "return", "if", "else", "guard", "for", "while", "do", "switch",
+        "case", "break", "continue", "defer", "in", "is", "as", "try", "catch",
+        "throw", "throws", "rethrows", "async", "await", "actor", "self", "super",
+        "init", "deinit", "subscript", "static", "final", "override", "mutating",
+        "lazy", "weak", "unowned", "inout", "typealias", "associatedtype",
+        "open", "public", "internal", "private", "fileprivate",
+        "nil", "true", "false", "where", "some", "any", "opaque",
+        // Python
+        "def", "pass", "with", "from", "lambda", "yield", "raise", "except",
+        "finally", "not", "and", "or", "None", "True", "False", "print",
+        "range", "len", "self", "cls", "global", "nonlocal", "del", "assert",
+        // JS / TS
+        "const", "function", "typeof", "instanceof", "new", "delete", "void",
+        "undefined", "null", "this", "export", "default", "interface", "type",
+        "namespace", "abstract", "implements", "extends", "declare", "readonly",
+        "keyof", "typeof", "satisfies", "override",
+        // Go
+        "package", "go", "chan", "select", "map", "make", "append", "range",
+        "goroutine", "defer", "fallthrough",
+        // Rust
+        "fn", "use", "mod", "pub", "impl", "trait", "where", "match", "ref",
+        "mut", "move", "unsafe", "extern", "crate", "super", "self", "loop",
+        // SQL
+        "SELECT", "FROM", "WHERE", "JOIN", "ON", "GROUP", "BY", "ORDER",
+        "HAVING", "INSERT", "INTO", "UPDATE", "SET", "DELETE", "CREATE",
+        "TABLE", "INDEX", "DROP", "ALTER", "ADD", "COLUMN", "PRIMARY", "KEY",
+        // Shell / Bash
+        "echo", "export", "source", "alias", "unset", "readonly",
+        // Common primitives
+        "int", "string", "bool", "float", "double", "char", "byte",
+        "void", "object", "array", "number", "boolean",
+    ]
 }
