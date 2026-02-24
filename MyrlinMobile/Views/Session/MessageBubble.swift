@@ -23,24 +23,31 @@ struct MessageBubble: View {
 
         case .assistantText(let content) where !content.isEmpty:
             assistantBubble(content: content)
+                .padding(.bottom, 16)
 
         case .userMessage(let content) where !content.isEmpty:
             userBubble(content: content)
+                .padding(.bottom, 16)
 
         case .thinking(let content) where showThinkingBlocks:
             thinkingCard(content: content)
+                .padding(.bottom, 6)
 
         case .toolUse(let name, let toolUseId, let inputJSON) where showToolBlocks:
             toolUseCard(name: name, toolUseId: toolUseId, inputJSON: inputJSON)
+                .padding(.bottom, 4)
 
         case .toolResult(let content, _, let isError) where !content.isEmpty && showToolBlocks:
             toolResultCard(content: content, isError: isError)
+                .padding(.bottom, 6)
 
         case .systemInit(let model, let tools, let cwd):
             systemInitCard(model: model, tools: tools, cwd: cwd)
+                .padding(.bottom, 14)
 
         case .systemMessage(let content, let subtype) where !content.isEmpty:
             systemLabel(content: content, subtype: subtype)
+                .padding(.bottom, 8)
 
         default:
             EmptyView()
@@ -50,62 +57,87 @@ struct MessageBubble: View {
     // MARK: - Assistant bubble
 
     private func assistantBubble(content: String) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                MarkdownWithCodeBlocks(text: content, bodyFont: bodyFont)
+        VStack(alignment: .leading, spacing: 6) {
+            // Sender label
+            HStack(spacing: 5) {
+                Image(systemName: "brain")
+                    .font(.caption2)
+                    .foregroundStyle(.purple)
+                Text("Claude")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
             }
-            .padding(12)
-            .background(Color(.systemBackground))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color(.systemGray5), lineWidth: 1)
-            )
-            .cornerRadius(12)
-            .contextMenu {
-                Button { UIPasteboard.general.string = content } label: {
-                    Label("Copy", systemImage: "doc.on.doc")
+
+            HStack(alignment: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: 4) {
+                    MarkdownWithCodeBlocks(text: content, bodyFont: bodyFont)
                 }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .contextMenu {
+                    Button { UIPasteboard.general.string = content } label: {
+                        Label("Copy", systemImage: "doc.on.doc")
+                    }
+                }
+                Spacer(minLength: 44)
             }
-            Spacer(minLength: 40)
         }
     }
 
     // MARK: - User bubble
 
     private func userBubble(content: String) -> some View {
-        HStack {
-            Spacer(minLength: 40)
-            Text(content)
-                .font(bodyFont)
-                .foregroundStyle(.white)
-                .padding(12)
-                .background(Color.blue)
-                .cornerRadius(12)
-                .contextMenu {
-                    Button { UIPasteboard.general.string = content } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
+        VStack(alignment: .trailing, spacing: 6) {
+            // Sender label
+            Text("You")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(alignment: .top, spacing: 0) {
+                Spacer(minLength: 44)
+                Text(content)
+                    .font(bodyFont)
+                    .foregroundStyle(.white)
+                    .padding(14)
+                    .background(Color.blue)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .contextMenu {
+                        Button { UIPasteboard.general.string = content } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                        }
                     }
-                }
+            }
         }
     }
 
     // MARK: - Thinking card
 
     private func thinkingCard(content: String) -> some View {
-        CollapsibleCard(
-            isExpanded: $isExpanded,
-            icon: "brain",
-            iconColor: .purple,
-            title: "Thinking",
-            titleStyle: .captionItalic
-        ) {
-            Text(content)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding([.horizontal, .bottom], 10)
+        HStack(spacing: 0) {
+            // Left accent bar
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color.purple.opacity(0.4))
+                .frame(width: 3)
+                .padding(.vertical, 2)
+            CollapsibleCard(
+                isExpanded: $isExpanded,
+                icon: "brain",
+                iconColor: .purple,
+                title: "Thinking",
+                titleStyle: .captionItalic
+            ) {
+                Text(content)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding([.leading, .trailing, .bottom], 10)
+            }
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            Spacer(minLength: 44)
         }
-        .background(Color(.systemGray6))
-        .cornerRadius(10)
+        .padding(.leading, 8)
     }
 
     // MARK: - Tool use card
@@ -113,25 +145,34 @@ struct MessageBubble: View {
     private func toolUseCard(name: String, toolUseId: String, inputJSON: String) -> some View {
         let isSubagent = name == "Task"
         let isAgentTeam = name == "Task" && inputJSON.contains("\"subagent_type\"")
+        let accentColor: Color = isSubagent ? .indigo : .orange
 
-        return CollapsibleCard(
-            isExpanded: $isExpanded,
-            icon: isSubagent ? (isAgentTeam ? "person.3.fill" : "person.fill.badge.plus") : toolIcon(for: name),
-            iconColor: isSubagent ? .indigo : .orange,
-            title: isSubagent ? subagentTitle(from: inputJSON) : name,
-            titleStyle: .captionMono,
-            badge: isSubagent ? "subagent" : nil
-        ) {
-            Divider()
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(inputJSON)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .padding(10)
+        return HStack(spacing: 0) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(accentColor.opacity(0.5))
+                .frame(width: 3)
+                .padding(.vertical, 2)
+            CollapsibleCard(
+                isExpanded: $isExpanded,
+                icon: isSubagent ? (isAgentTeam ? "person.3.fill" : "person.fill.badge.plus") : toolIcon(for: name),
+                iconColor: accentColor,
+                title: isSubagent ? subagentTitle(from: inputJSON) : name,
+                titleStyle: .captionMono,
+                badge: isSubagent ? "subagent" : nil
+            ) {
+                Divider()
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(inputJSON)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .padding(10)
+                }
             }
+            .background(isSubagent ? Color.indigo.opacity(0.08) : Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            Spacer(minLength: 44)
         }
-        .background(isSubagent ? Color.indigo.opacity(0.08) : Color(.systemGray6))
-        .cornerRadius(10)
+        .padding(.leading, 8)
     }
 
     // MARK: - Tool result card
@@ -139,28 +180,37 @@ struct MessageBubble: View {
     private func toolResultCard(content: String, isError: Bool) -> some View {
         let isDiff = content.hasPrefix("diff --git") || content.contains("\n--- a/")
         let isManyLines = content.components(separatedBy: "\n").count > 8
+        let accentColor: Color = isError ? .red : (isDiff ? .teal : .green)
 
-        return CollapsibleCard(
-            isExpanded: $isExpanded,
-            icon: isError ? "xmark.circle" : (isDiff ? "arrow.triangle.2.circlepath" : "checkmark.circle"),
-            iconColor: isError ? .red : (isDiff ? .teal : .green),
-            title: isError ? "Tool Error" : (isDiff ? "Diff" : "Tool Result"),
-            titleStyle: .caption
-        ) {
-            Divider()
-            if isDiff {
-                DiffView(text: content)
-                    .padding(10)
-            } else {
-                Text(content)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(isError ? .red : .secondary)
-                    .padding(10)
-                    .lineLimit(isManyLines ? 30 : nil)
+        return HStack(spacing: 0) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(accentColor.opacity(0.5))
+                .frame(width: 3)
+                .padding(.vertical, 2)
+            CollapsibleCard(
+                isExpanded: $isExpanded,
+                icon: isError ? "xmark.circle" : (isDiff ? "arrow.triangle.2.circlepath" : "checkmark.circle"),
+                iconColor: accentColor,
+                title: isError ? "Tool Error" : (isDiff ? "Diff" : "Tool Result"),
+                titleStyle: .caption
+            ) {
+                Divider()
+                if isDiff {
+                    DiffView(text: content)
+                        .padding(10)
+                } else {
+                    Text(content)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(isError ? .red : .secondary)
+                        .padding(10)
+                        .lineLimit(isManyLines ? 30 : nil)
+                }
             }
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            Spacer(minLength: 44)
         }
-        .background(Color(.systemGray6))
-        .cornerRadius(10)
+        .padding(.leading, 8)
     }
 
     // MARK: - System init card
@@ -187,9 +237,9 @@ struct MessageBubble: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
         .background(Color(.systemGray6))
-        .cornerRadius(8)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     // MARK: - System label
@@ -199,11 +249,11 @@ struct MessageBubble: View {
             Spacer()
             Text(content)
                 .font(.caption)
-                .foregroundStyle(subtype == "stderr" ? .red : .secondary)
+                .foregroundStyle(subtype == "stderr" ? Color.red : Color.secondary.opacity(0.6))
                 .multilineTextAlignment(.center)
             Spacer()
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 
     // MARK: - Helpers

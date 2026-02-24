@@ -77,14 +77,15 @@ struct MobileSessionView: View {
             // Message list
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(client.messages) { msg in
                             MessageBubble(message: msg)
                                 .id(msg.id)
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 12)
+                    .padding(.bottom, 8)
 
                     Color.clear.frame(height: 1).id("bottom")
                 }
