@@ -147,6 +147,21 @@ final class MyrlinAPI {
         let _: Empty = try await request("/api/sessions/\(id)/restart", method: "POST")
     }
 
+    /// Creates a git worktree + session atomically via POST /api/worktree-tasks.
+    /// The session is added to AppState automatically via SSE session:created.
+    func createWorktreeTask(workspaceId: String, repoDir: String, branch: String,
+                            description: String, baseBranch: String = "main",
+                            model: String? = nil) async throws {
+        struct Body: Encodable {
+            let workspaceId: String; let repoDir: String; let branch: String
+            let description: String; let baseBranch: String; let model: String?
+        }
+        struct AnyResponse: Decodable {}
+        let _: AnyResponse = try await request("/api/worktree-tasks", method: "POST",
+            body: Body(workspaceId: workspaceId, repoDir: repoDir, branch: branch,
+                       description: description, baseBranch: baseBranch, model: model))
+    }
+
     func sessionCost(_ id: String) async throws -> SessionCost {
         struct Wrapper: Decodable { let cost: SessionCost }
         let wrapper: Wrapper = try await request("/api/sessions/\(id)/cost")

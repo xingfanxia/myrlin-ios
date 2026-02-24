@@ -11,6 +11,9 @@ struct SessionListView: View {
     @State private var newSessionBypassPerms = false
     @State private var newSessionVerbose = false
     @State private var newSessionAgentTeams = false
+    @State private var newSessionCreateWorktree = false
+    @State private var newSessionBranch = ""
+    @State private var newSessionBaseBranch = "main"
     @State private var showSearch = false
     @State private var sessionToRename: Session? = nil
     @State private var renameText = ""
@@ -43,6 +46,8 @@ struct SessionListView: View {
                          model: $newSessionModel, workingDir: $newSessionWorkingDir,
                          bypassPerms: $newSessionBypassPerms, verbose: $newSessionVerbose,
                          agentTeams: $newSessionAgentTeams,
+                         createWorktree: $newSessionCreateWorktree,
+                         branch: $newSessionBranch, baseBranch: $newSessionBaseBranch,
                          onCreate: createSession)
         .renameSessionAlert(item: $sessionToRename, text: $renameText, onRename: renameSession)
         .sheet(isPresented: $showSearch) { SearchView(workspaceId: workspace.id) }
@@ -62,6 +67,8 @@ struct SessionListView: View {
                          model: $newSessionModel, workingDir: $newSessionWorkingDir,
                          bypassPerms: $newSessionBypassPerms, verbose: $newSessionVerbose,
                          agentTeams: $newSessionAgentTeams,
+                         createWorktree: $newSessionCreateWorktree,
+                         branch: $newSessionBranch, baseBranch: $newSessionBaseBranch,
                          onCreate: createSession)
         .renameSessionAlert(item: $sessionToRename, text: $renameText, onRename: renameSession)
         .sheet(isPresented: $showSearch) { SearchView(workspaceId: workspace.id) }
@@ -124,20 +131,38 @@ struct SessionListView: View {
     private func createSession() async {
         let name = newSessionName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
+        let dir = newSessionWorkingDir.trimmingCharacters(in: .whitespaces)
         do {
-            let dirArg = newSessionWorkingDir.trimmingCharacters(in: .whitespaces).isEmpty ? nil
-                       : newSessionWorkingDir.trimmingCharacters(in: .whitespaces)
-            let session = try await MyrlinAPI.shared.createSession(
-                name: name,
-                workspaceId: workspace.id,
-                workingDir: dirArg,
-                model: newSessionModel,
-                bypassPermissions: newSessionBypassPerms ? true : nil,
-                verbose: newSessionVerbose ? true : nil,
-                agentTeams: newSessionAgentTeams ? true : nil
-            )
-            try? await MyrlinAPI.shared.startSession(session.id)
-            appState.sessions.append(session)
+            if newSessionCreateWorktree {
+                let branch = newSessionBranch.trimmingCharacters(in: .whitespaces)
+                guard !branch.isEmpty, !dir.isEmpty else {
+                    self.error = "Repo directory and branch name are required for worktree sessions"
+                    return
+                }
+                // Server creates the git worktree + session atomically.
+                // The resulting session arrives via SSE session:created → AppState auto-appends it.
+                try await MyrlinAPI.shared.createWorktreeTask(
+                    workspaceId: workspace.id,
+                    repoDir: dir,
+                    branch: branch,
+                    description: name,
+                    baseBranch: newSessionBaseBranch.isEmpty ? "main" : newSessionBaseBranch,
+                    model: newSessionModel
+                )
+            } else {
+                let dirArg = dir.isEmpty ? nil : dir
+                let session = try await MyrlinAPI.shared.createSession(
+                    name: name,
+                    workspaceId: workspace.id,
+                    workingDir: dirArg,
+                    model: newSessionModel,
+                    bypassPermissions: newSessionBypassPerms ? true : nil,
+                    verbose: newSessionVerbose ? true : nil,
+                    agentTeams: newSessionAgentTeams ? true : nil
+                )
+                try? await MyrlinAPI.shared.startSession(session.id)
+                appState.sessions.append(session)
+            }
         } catch {
             self.error = error.localizedDescription
         }
@@ -146,6 +171,9 @@ struct SessionListView: View {
         newSessionBypassPerms = false
         newSessionVerbose = false
         newSessionAgentTeams = false
+        newSessionCreateWorktree = false
+        newSessionBranch = ""
+        newSessionBaseBranch = "main"
     }
 
     private func deleteSession(_ session: Session) async {
@@ -213,6 +241,8 @@ private extension View {
                          model: Binding<String>, workingDir: Binding<String>,
                          bypassPerms: Binding<Bool>, verbose: Binding<Bool>,
                          agentTeams: Binding<Bool>,
+                         createWorktree: Binding<Bool>,
+                         branch: Binding<String>, baseBranch: Binding<String>,
                          onCreate: @escaping () async -> Void) -> some View {
         self.sheet(isPresented: isPresented) {
             NavigationStack {
@@ -228,16 +258,43 @@ private extension View {
                             Text("Haiku 4.5").tag("claude-haiku-4-5-20251001")
                         }
                     }
-                    Section("Working Directory") {
-                        TextField("/path/to/project (optional)", text: workingDir)
-                            .autocorrectionDisabled()
-                            .autocapitalization(.none)
-                            .font(.callout.monospaced())
+
+                    Section {
+                        Toggle("Create in New Worktree", isOn: createWorktree)
+                        if createWorktree.wrappedValue {
+                            TextField("/path/to/repo (required)", text: workingDir)
+                                .autocorrectionDisabled()
+                                .autocapitalization(.none)
+                                .font(.callout.monospaced())
+                            TextField("Branch name (e.g. feat/my-feature)", text: branch)
+                                .autocorrectionDisabled()
+                                .autocapitalization(.none)
+                                .font(.callout.monospaced())
+                            TextField("Base branch (default: main)", text: baseBranch)
+                                .autocorrectionDisabled()
+                                .autocapitalization(.none)
+                                .font(.callout.monospaced())
+                        } else {
+                            TextField("/path/to/project (optional)", text: workingDir)
+                                .autocorrectionDisabled()
+                                .autocapitalization(.none)
+                                .font(.callout.monospaced())
+                        }
+                    } header: {
+                        Text(createWorktree.wrappedValue ? "Worktree" : "Working Directory")
+                    } footer: {
+                        if createWorktree.wrappedValue {
+                            Text("Creates a new git worktree at the branch and opens a session inside it.")
+                                .font(.caption)
+                        }
                     }
-                    Section("Flags") {
-                        Toggle("Bypass Permissions", isOn: bypassPerms)
-                        Toggle("Verbose Output", isOn: verbose)
-                        Toggle("Agent Teams", isOn: agentTeams)
+
+                    if !createWorktree.wrappedValue {
+                        Section("Flags") {
+                            Toggle("Bypass Permissions", isOn: bypassPerms)
+                            Toggle("Verbose Output", isOn: verbose)
+                            Toggle("Agent Teams", isOn: agentTeams)
+                        }
                     }
                 }
                 .navigationTitle("New Session")
@@ -254,6 +311,7 @@ private extension View {
                         .disabled(name.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
+                .animation(.default, value: createWorktree.wrappedValue)
             }
             .presentationDetents([.large])
         }
