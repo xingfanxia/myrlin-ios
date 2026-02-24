@@ -38,11 +38,13 @@ class AppState: ObservableObject {
                 self.startSSE()
             }
         }
-        // Auto-logout when any API call gets a 401 (server restarted, token wiped)
+        // Token expired (server restarted, session wiped) — try silent re-login first
         tokenExpiredObserver = NotificationCenter.default
             .publisher(for: .myrlinTokenExpired)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.logout() }
+            .sink { [weak self] _ in
+                Task { @MainActor in await self?.tryAutoRelogin() }
+            }
     }
 
     // MARK: - Auth
@@ -78,7 +80,7 @@ class AppState: ObservableObject {
         sseClient.disconnect()
         sseObserver?.cancel()
         Task { try? await MyrlinAPI.shared.serverLogout() }
-        authService.logout()
+        authService.logout()          // clears token + saved password
         isAuthenticated = false
         serverURL = ""
         workspaces = []
@@ -86,6 +88,26 @@ class AppState: ObservableObject {
         groups = []
         workspacesLoaded = false
         sessionsLoaded = false
+    }
+
+    /// Called when the server returns 401 (server restarted / token expired).
+    /// Silently re-authenticates using the stored password so the user doesn't
+    /// have to type it again. Falls back to full logout if relogin fails.
+    private func tryAutoRelogin() async {
+        guard let savedURL = authService.serverURL,
+              let savedPwd  = authService.password else {
+            logout(); return
+        }
+        authService.clearToken()
+        do {
+            try await authService.login(serverURL: savedURL, password: savedPwd)
+            self.serverURL = savedURL
+            // isAuthenticated stays true — user never sees the login screen
+            await initialLoad()
+            startSSE()
+        } catch {
+            logout()
+        }
     }
 
     // MARK: - Initial Load

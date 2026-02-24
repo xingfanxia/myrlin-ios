@@ -9,6 +9,7 @@ final class AuthService {
     // MARK: - Keychain Keys
     private static let serverURLKey = "myrlin.serverURL"
     private static let tokenKey = "myrlin.authToken"
+    private static let passwordKey = "myrlin.password"
 
     // MARK: - In-Memory Cache
     private var _serverURL: String?
@@ -29,6 +30,15 @@ final class AuthService {
             _token = newValue
             if let v = newValue { keychainWrite(key: Self.tokenKey, value: v) }
             else { keychainDelete(key: Self.tokenKey) }
+        }
+    }
+
+    /// Stored password for silent re-login after server restart invalidates the token.
+    var password: String? {
+        get { keychainRead(key: Self.passwordKey) }
+        set {
+            if let v = newValue { keychainWrite(key: Self.passwordKey, value: v) }
+            else { keychainDelete(key: Self.passwordKey) }
         }
     }
 
@@ -63,10 +73,19 @@ final class AuthService {
 
         self.serverURL = normalizedURL
         self.token = tok
+        self.password = password  // persist for silent re-login
     }
 
+    /// Clears only the session token (token expired / server restarted).
+    /// Password is preserved so auto-relogin can succeed silently.
+    func clearToken() {
+        token = nil
+    }
+
+    /// Full logout: clears all stored credentials.
     func logout() {
         token = nil
+        password = nil
     }
 
     // MARK: - Keychain Helpers

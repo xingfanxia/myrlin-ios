@@ -11,6 +11,10 @@ struct MobileSessionView: View {
     @State private var scrollToBottom: Bool = false
     @State private var showDetail: Bool = false
 
+    @AppStorage("chatFontSize")       private var chatFontSize: String = "medium"
+    @AppStorage("showThinkingBlocks") private var showThinkingBlocks: Bool = true
+    @AppStorage("showToolBlocks")     private var showToolBlocks: Bool = true
+
     enum ViewMode { case chat, terminal }
 
     /// Live session from AppState (updated by SSE), falling back to the initial value
@@ -148,6 +152,42 @@ struct MobileSessionView: View {
                 showDetail = true
             } label: {
                 Image(systemName: "info.circle")
+            }
+        }
+        // Display options — only relevant in chat mode
+        if mode == .chat {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Section("Font Size") {
+                        Button { chatFontSize = "small" } label: {
+                            if chatFontSize == "small" {
+                                Label("Small", systemImage: "checkmark")
+                            } else {
+                                Text("Small")
+                            }
+                        }
+                        Button { chatFontSize = "medium" } label: {
+                            if chatFontSize == "medium" {
+                                Label("Medium", systemImage: "checkmark")
+                            } else {
+                                Text("Medium")
+                            }
+                        }
+                        Button { chatFontSize = "large" } label: {
+                            if chatFontSize == "large" {
+                                Label("Large", systemImage: "checkmark")
+                            } else {
+                                Text("Large")
+                            }
+                        }
+                    }
+                    Section("Blocks") {
+                        Toggle("Show Thinking", isOn: $showThinkingBlocks)
+                        Toggle("Show Tool Calls", isOn: $showToolBlocks)
+                    }
+                } label: {
+                    Image(systemName: "textformat.size")
+                }
             }
         }
         ToolbarItem(placement: .navigationBarTrailing) {

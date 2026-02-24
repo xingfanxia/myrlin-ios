@@ -4,7 +4,10 @@ struct SettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var showLogoutAlert: Bool = false
     @State private var showSwitchServer: Bool = false
-    @AppStorage("appearanceMode") private var appearanceMode: String = "system"
+    @AppStorage("appearanceMode")     private var appearanceMode: String = "system"
+    @AppStorage("chatFontSize")       private var chatFontSize: String = "medium"
+    @AppStorage("showThinkingBlocks") private var showThinkingBlocks: Bool = true
+    @AppStorage("showToolBlocks")     private var showToolBlocks: Bool = true
 
     var body: some View {
         Form {
@@ -38,6 +41,16 @@ struct SettingsView: View {
                     Text("Light").tag("light")
                     Text("Dark").tag("dark")
                 }
+            }
+
+            Section("Chat Display") {
+                Picker("Font Size", selection: $chatFontSize) {
+                    Text("Small").tag("small")
+                    Text("Medium").tag("medium")
+                    Text("Large").tag("large")
+                }
+                Toggle("Show Thinking Blocks", isOn: $showThinkingBlocks)
+                Toggle("Show Tool Calls", isOn: $showToolBlocks)
             }
 
             Section("Account") {

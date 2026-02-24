@@ -5,6 +5,19 @@ struct MessageBubble: View {
     let message: StreamMessage
     @State private var isExpanded: Bool = false
 
+    @AppStorage("chatFontSize")       private var chatFontSize: String = "medium"
+    @AppStorage("showThinkingBlocks") private var showThinkingBlocks: Bool = true
+    @AppStorage("showToolBlocks")     private var showToolBlocks: Bool = true
+
+    /// Body font scaled by the user's font-size preference.
+    var bodyFont: Font {
+        switch chatFontSize {
+        case "small": return .callout
+        case "large": return .title3
+        default:      return .body
+        }
+    }
+
     var body: some View {
         switch message.type {
 
@@ -14,13 +27,13 @@ struct MessageBubble: View {
         case .userMessage(let content) where !content.isEmpty:
             userBubble(content: content)
 
-        case .thinking(let content):
+        case .thinking(let content) where showThinkingBlocks:
             thinkingCard(content: content)
 
-        case .toolUse(let name, let toolUseId, let inputJSON):
+        case .toolUse(let name, let toolUseId, let inputJSON) where showToolBlocks:
             toolUseCard(name: name, toolUseId: toolUseId, inputJSON: inputJSON)
 
-        case .toolResult(let content, _, let isError) where !content.isEmpty:
+        case .toolResult(let content, _, let isError) where !content.isEmpty && showToolBlocks:
             toolResultCard(content: content, isError: isError)
 
         case .systemInit(let model, let tools, let cwd):
@@ -39,7 +52,7 @@ struct MessageBubble: View {
     private func assistantBubble(content: String) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                MarkdownWithCodeBlocks(text: content)
+                MarkdownWithCodeBlocks(text: content, bodyFont: bodyFont)
             }
             .padding(12)
             .background(Color(.systemBackground))
@@ -63,7 +76,7 @@ struct MessageBubble: View {
         HStack {
             Spacer(minLength: 40)
             Text(content)
-                .font(.body)
+                .font(bodyFont)
                 .foregroundStyle(.white)
                 .padding(12)
                 .background(Color.blue)
@@ -321,6 +334,15 @@ struct DiffView: View {
 
 struct MarkdownWithCodeBlocks: View {
     let text: String
+    var bodyFont: Font = .body
+
+    private var codeFont: Font {
+        switch bodyFont {
+        case .callout: return .caption2.monospaced()
+        case .title3:  return .callout.monospaced()
+        default:       return .caption.monospaced()
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -328,7 +350,7 @@ struct MarkdownWithCodeBlocks: View {
                 if segment.isCode {
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text(segment.text)
-                            .font(.caption.monospaced())
+                            .font(codeFont)
                             .foregroundStyle(.primary)
                             .padding(8)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -338,12 +360,12 @@ struct MarkdownWithCodeBlocks: View {
                 } else if !segment.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     if let attributed = try? AttributedString(markdown: segment.text) {
                         Text(attributed)
-                            .font(.body)
+                            .font(bodyFont)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     } else {
                         Text(segment.text)
-                            .font(.body)
+                            .font(bodyFont)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
