@@ -18,6 +18,10 @@ class AppState: ObservableObject {
     @Published var workspacesLoaded: Bool = false
     @Published var sessionsLoaded: Bool = false
 
+    // In-memory message cache: session ID → messages
+    // Persists across navigation so chat history is visible on re-open
+    var messageCache: [String: [StreamMessage]] = [:]
+
     private let authService = AuthService.shared
     private let sseClient = SSEClient()
     private var tokenExpiredObserver: AnyCancellable?

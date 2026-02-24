@@ -1,17 +1,35 @@
 import Foundation
 
+// MARK: - Cost Dashboard
+// Server: GET /api/cost/dashboard → { summary: {...}, sessions: [...], byWorkspace: [...] }
+
 struct CostDashboard: Codable {
+    var summary: CostSummary
     var sessions: [SessionCostEntry]
-    var total: Double
     var byWorkspace: [WorkspaceCost]
+
+    struct CostSummary: Codable {
+        var totalCost: Double
+        var periodCost: Double?
+        var periodLabel: String?
+        var messageCount: Int?
+        var cacheSavings: Double?
+        var totalTokens: TotalTokens?
+
+        struct TotalTokens: Codable {
+            var input: Int?
+            var output: Int?
+            var cacheRead: Int?
+            var cacheWrite: Int?
+        }
+    }
 }
 
 struct SessionCostEntry: Codable, Identifiable {
     var id: String
     var name: String
     var cost: Double
-    var inputTokens: Int
-    var outputTokens: Int
+    var messageCount: Int?
     var model: String?
 }
 
@@ -19,13 +37,34 @@ struct WorkspaceCost: Codable, Identifiable {
     var id: String
     var name: String
     var cost: Double
+    var sessionCount: Int?
 }
 
+// MARK: - Quota Overview
+// Server: GET /api/quota-overview → { summary: { totalSessions, criticalCount, ... }, sessions: [...] }
+
 struct QuotaOverview: Codable {
-    var used: Double?
-    var limit: Double?
-    var percent: Double?
+    var summary: QuotaSummary?
+    var sessions: [SessionQuota]?
+
+    struct QuotaSummary: Codable {
+        var totalSessions: Int?
+        var criticalCount: Int?
+        var warningCount: Int?
+        var totalCost: Double?
+    }
+
+    struct SessionQuota: Codable {
+        var sessionId: String?
+        var sessionName: String?
+        var contextPct: Int?
+        var urgency: String?   // "ok" | "warning" | "critical"
+        var totalCost: Double?
+        var latestInputTokens: Int?
+    }
 }
+
+// MARK: - Subagent
 
 struct SubagentInfo: Codable, Identifiable {
     var id: String
@@ -34,12 +73,22 @@ struct SubagentInfo: Codable, Identifiable {
     var description: String?
 }
 
-struct DiscoveredSession: Codable, Identifiable {
-    var id: String
-    var projectPath: String
-    var lastUsed: Date?
-    var messageCount: Int?
+// MARK: - Discover
+// Server: GET /api/discover → { projects: [{encodedName, realPath, sessionCount, lastActive, ...}] }
+
+struct DiscoveredProject: Codable, Identifiable {
+    var encodedName: String
+    var realPath: String
+    var sessionCount: Int
+    var lastActive: Date?
+    var hasClaudeMd: Bool?
+    var dirExists: Bool?
+
+    // Use realPath as stable ID
+    var id: String { encodedName }
 }
+
+// MARK: - Tunnels
 
 struct TunnelConfig: Codable, Identifiable {
     var id: String

@@ -6,7 +6,8 @@ struct SessionListView: View {
     @EnvironmentObject var appState: AppState
     @State private var showNewSession = false
     @State private var newSessionName = ""
-    @State private var newSessionModel = ""
+    @State private var newSessionModel = "claude-opus-4-5"
+    @State private var newSessionWorkingDir = ""
     @State private var newSessionBypassPerms = false
     @State private var newSessionVerbose = false
     @State private var newSessionAgentTeams = false
@@ -39,7 +40,7 @@ struct SessionListView: View {
         .overlay { emptyOverlay }
         .overlayError(error)
         .newSessionSheet(isPresented: $showNewSession, name: $newSessionName,
-                         model: $newSessionModel,
+                         model: $newSessionModel, workingDir: $newSessionWorkingDir,
                          bypassPerms: $newSessionBypassPerms, verbose: $newSessionVerbose,
                          agentTeams: $newSessionAgentTeams,
                          onCreate: createSession)
@@ -58,7 +59,7 @@ struct SessionListView: View {
         .overlay { emptyOverlay }
         .overlayError(error)
         .newSessionSheet(isPresented: $showNewSession, name: $newSessionName,
-                         model: $newSessionModel,
+                         model: $newSessionModel, workingDir: $newSessionWorkingDir,
                          bypassPerms: $newSessionBypassPerms, verbose: $newSessionVerbose,
                          agentTeams: $newSessionAgentTeams,
                          onCreate: createSession)
@@ -124,21 +125,24 @@ struct SessionListView: View {
         let name = newSessionName.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { return }
         do {
-            let modelArg = newSessionModel.trimmingCharacters(in: .whitespaces).isEmpty ? nil : newSessionModel.trimmingCharacters(in: .whitespaces)
+            let dirArg = newSessionWorkingDir.trimmingCharacters(in: .whitespaces).isEmpty ? nil
+                       : newSessionWorkingDir.trimmingCharacters(in: .whitespaces)
             let session = try await MyrlinAPI.shared.createSession(
                 name: name,
                 workspaceId: workspace.id,
-                model: modelArg,
+                workingDir: dirArg,
+                model: newSessionModel,
                 bypassPermissions: newSessionBypassPerms ? true : nil,
                 verbose: newSessionVerbose ? true : nil,
                 agentTeams: newSessionAgentTeams ? true : nil
             )
+            try? await MyrlinAPI.shared.startSession(session.id)
             appState.sessions.append(session)
         } catch {
             self.error = error.localizedDescription
         }
         newSessionName = ""
-        newSessionModel = ""
+        newSessionWorkingDir = ""
         newSessionBypassPerms = false
         newSessionVerbose = false
         newSessionAgentTeams = false
@@ -206,7 +210,7 @@ private extension View {
     }
 
     func newSessionSheet(isPresented: Binding<Bool>, name: Binding<String>,
-                         model: Binding<String>,
+                         model: Binding<String>, workingDir: Binding<String>,
                          bypassPerms: Binding<Bool>, verbose: Binding<Bool>,
                          agentTeams: Binding<Bool>,
                          onCreate: @escaping () async -> Void) -> some View {
@@ -217,10 +221,20 @@ private extension View {
                         TextField("My Session", text: name)
                             .autocorrectionDisabled()
                     }
-                    Section("Options") {
-                        TextField("Model override (optional)", text: model)
+                    Section("Model") {
+                        Picker("Model", selection: model) {
+                            Text("Opus 4.5 (recommended)").tag("claude-opus-4-5")
+                            Text("Sonnet 4.6").tag("claude-sonnet-4-6")
+                            Text("Haiku 4.5").tag("claude-haiku-4-5-20251001")
+                        }
+                    }
+                    Section("Working Directory") {
+                        TextField("/path/to/project (optional)", text: workingDir)
                             .autocorrectionDisabled()
                             .autocapitalization(.none)
+                            .font(.callout.monospaced())
+                    }
+                    Section("Flags") {
                         Toggle("Bypass Permissions", isOn: bypassPerms)
                         Toggle("Verbose Output", isOn: verbose)
                         Toggle("Agent Teams", isOn: agentTeams)
@@ -237,10 +251,11 @@ private extension View {
                             isPresented.wrappedValue = false
                             Task { await onCreate() }
                         }
+                        .disabled(name.wrappedValue.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
             }
-            .presentationDetents([.medium])
+            .presentationDetents([.large])
         }
     }
 

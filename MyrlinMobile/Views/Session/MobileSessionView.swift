@@ -30,7 +30,13 @@ struct MobileSessionView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
         .onAppear { connectIfNeeded() }
-        .onDisappear { client.disconnect() }
+        .onDisappear {
+            // Save messages to cache before disconnecting so they survive navigation
+            if !client.messages.isEmpty {
+                appState.messageCache[session.id] = client.messages
+            }
+            client.disconnect()
+        }
         .sheet(isPresented: $showDetail) {
             SessionDetailView(session: liveSession)
                 .environmentObject(appState)
@@ -151,10 +157,12 @@ struct MobileSessionView: View {
 
     private func connectIfNeeded() {
         guard client.connectionState == .disconnected else { return }
+        let cached = appState.messageCache[session.id] ?? []
         client.connect(
             sessionId: session.id,
             resumeSessionId: session.claudeSessionId,
-            workingDir: session.workingDir
+            workingDir: session.workingDir,
+            initialMessages: cached
         )
     }
 

@@ -319,10 +319,10 @@ final class MyrlinAPI {
 
     // MARK: - Discover
 
-    func discoverSessions() async throws -> [DiscoveredSession] {
-        struct Wrapper: Decodable { let sessions: [DiscoveredSession] }
+    func discoverProjects() async throws -> [DiscoveredProject] {
+        struct Wrapper: Decodable { let projects: [DiscoveredProject] }
         let wrapper: Wrapper = try await request("/api/discover")
-        return wrapper.sessions
+        return wrapper.projects
     }
 
     // MARK: - Tunnels

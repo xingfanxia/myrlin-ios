@@ -26,7 +26,8 @@ class MobileSessionClient: NSObject, ObservableObject {
     // MARK: - Connect
 
     func connect(sessionId: String, resumeSessionId: String? = nil,
-                 model: String? = nil, workingDir: String? = nil) {
+                 model: String? = nil, workingDir: String? = nil,
+                 initialMessages: [StreamMessage] = []) {
         guard let serverURL = AuthService.shared.serverURL,
               let token = AuthService.shared.token else {
             error = "Not authenticated"
@@ -34,7 +35,7 @@ class MobileSessionClient: NSObject, ObservableObject {
         }
 
         connectionState = .connecting
-        messages = []
+        messages = initialMessages  // Restore cached history
         error = nil
         isGenerating = false
         claudeSessionId = resumeSessionId

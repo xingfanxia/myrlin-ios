@@ -33,18 +33,41 @@ struct CostView: View {
                 if let dashboard {
                     Section("Summary") {
                         LabeledContent("Total Cost") {
-                            Text(dashboard.total, format: .currency(code: "USD"))
+                            Text(dashboard.summary.totalCost, format: .currency(code: "USD"))
                                 .foregroundStyle(.secondary)
                         }
-                        if let quota {
-                            if let used = quota.used, let limit = quota.limit, limit > 0 {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    LabeledContent("Quota") {
-                                        Text("\(used, format: .currency(code: "USD")) / \(limit, format: .currency(code: "USD"))")
-                                            .foregroundStyle(.secondary)
+                        if let period = dashboard.summary.periodLabel {
+                            LabeledContent("Period") {
+                                Text(period).foregroundStyle(.secondary)
+                            }
+                        }
+                        if let msgs = dashboard.summary.messageCount {
+                            LabeledContent("Messages") {
+                                Text(msgs.formatted()).foregroundStyle(.secondary)
+                            }
+                        }
+                        if let savings = dashboard.summary.cacheSavings, savings > 0 {
+                            LabeledContent("Cache Savings") {
+                                Text(savings, format: .currency(code: "USD"))
+                                    .foregroundStyle(.green)
+                            }
+                        }
+                        // Quota context bar
+                        if let quota, let sessions = quota.sessions, !sessions.isEmpty {
+                            let critical = sessions.filter { $0.urgency == "critical" }.count
+                            let warning = sessions.filter { $0.urgency == "warning" }.count
+                            if critical > 0 || warning > 0 {
+                                HStack(spacing: 6) {
+                                    if critical > 0 {
+                                        Label("\(critical) critical", systemImage: "exclamationmark.triangle.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.red)
                                     }
-                                    ProgressView(value: min(used / limit, 1.0))
-                                        .tint(used / limit > 0.8 ? .red : .blue)
+                                    if warning > 0 {
+                                        Label("\(warning) warning", systemImage: "exclamationmark.triangle")
+                                            .font(.caption)
+                                            .foregroundStyle(.orange)
+                                    }
                                 }
                             }
                         }
@@ -52,7 +75,7 @@ struct CostView: View {
 
                     if !dashboard.sessions.isEmpty {
                         Section("Top Sessions") {
-                            ForEach(dashboard.sessions.sorted { $0.cost > $1.cost }) { entry in
+                            ForEach(dashboard.sessions.prefix(10)) { entry in
                                 HStack {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(entry.name).lineLimit(1)
@@ -71,7 +94,7 @@ struct CostView: View {
 
                     if !dashboard.byWorkspace.isEmpty {
                         Section("By Workspace") {
-                            ForEach(dashboard.byWorkspace.sorted { $0.cost > $1.cost }) { ws in
+                            ForEach(dashboard.byWorkspace) { ws in
                                 LabeledContent(ws.name) {
                                     Text(ws.cost, format: .currency(code: "USD"))
                                         .foregroundStyle(.secondary)
