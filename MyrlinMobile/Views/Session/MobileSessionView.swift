@@ -5,6 +5,7 @@ import WebKit
 struct MobileSessionView: View {
     let session: Session
     @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var client = MobileSessionClient()
     @State private var mode: ViewMode = .chat
     @State private var scrollToBottom: Bool = false
@@ -36,6 +37,12 @@ struct MobileSessionView: View {
                 appState.messageCache[session.id] = client.messages
             }
             client.disconnect()
+        }
+        // Auto-pop when this session is deleted (from the info panel or elsewhere)
+        .onChange(of: appState.sessions) { sessions in
+            if !sessions.contains(where: { $0.id == session.id }) {
+                dismiss()
+            }
         }
         .sheet(isPresented: $showDetail) {
             SessionDetailView(session: liveSession)
@@ -158,10 +165,12 @@ struct MobileSessionView: View {
     private func connectIfNeeded() {
         guard client.connectionState == .disconnected else { return }
         let cached = appState.messageCache[session.id] ?? []
+        // Use liveSession so we pick up claudeSessionId/workingDir set after creation
+        // (e.g., by SSE session:updated or a discover import that pre-set claudeSessionId)
         client.connect(
-            sessionId: session.id,
-            resumeSessionId: session.claudeSessionId,
-            workingDir: session.workingDir,
+            sessionId: liveSession.id,
+            resumeSessionId: liveSession.claudeSessionId,
+            workingDir: liveSession.workingDir,
             initialMessages: cached
         )
     }

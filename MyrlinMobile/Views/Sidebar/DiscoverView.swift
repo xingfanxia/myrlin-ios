@@ -131,6 +131,12 @@ struct DiscoverView: View {
             try? await MyrlinAPI.shared.startSession(created.id)
             var launched = created
             launched.status = .running
+            // If the server returned claudeSessionId (or we passed latestSessionId),
+            // keep it; otherwise use latestSessionId as a local override so connectIfNeeded
+            // can pass it as resumeSessionId when opening the session.
+            if launched.claudeSessionId == nil, let resumeId = project.latestSessionId {
+                launched.claudeSessionId = resumeId
+            }
             appState.sessions.append(launched)
             imported.insert(project.id)
             importedWorkspaceNames[project.id] = workspace?.name ?? "first workspace"

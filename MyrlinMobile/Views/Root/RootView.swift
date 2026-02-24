@@ -45,6 +45,12 @@ struct MainView: View {
                 ContentUnavailableView("Select a session", systemImage: "terminal")
             }
         }
+        // Clear selection when the selected session is deleted (iPad)
+        .onChange(of: appState.sessions) { sessions in
+            if let sel = selectedSession, !sessions.contains(where: { $0.id == sel.id }) {
+                selectedSession = nil
+            }
+        }
     }
 
     private var iPhoneLayout: some View {
