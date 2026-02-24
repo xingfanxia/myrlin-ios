@@ -126,14 +126,14 @@ struct DiscoverView: View {
                 name: name,
                 workspaceId: wsId,
                 workingDir: workingDir,
-                claudeSessionId: project.latestSessionId
+                resumeSessionId: project.latestSessionId
             )
             try? await MyrlinAPI.shared.startSession(created.id)
             var launched = created
             launched.status = .running
-            // If the server returned claudeSessionId (or we passed latestSessionId),
-            // keep it; otherwise use latestSessionId as a local override so connectIfNeeded
-            // can pass it as resumeSessionId when opening the session.
+            // Ensure claudeSessionId is populated locally even if the server response
+            // omitted it (older server versions). This guarantees --resume works when
+            // MobileSessionView opens the WebSocket connection.
             if launched.claudeSessionId == nil, let resumeId = project.latestSessionId {
                 launched.claudeSessionId = resumeId
             }

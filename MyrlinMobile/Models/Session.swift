@@ -17,7 +17,9 @@ struct Session: Codable, Identifiable, Equatable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, status, workspaceId, workingDir, claudeSessionId, lastActive, createdAt, tags, model
+        case id, name, status, workspaceId, workingDir, lastActive, createdAt, tags, model
+        // Server stores the Claude session UUID as "resumeSessionId"
+        case claudeSessionId = "resumeSessionId"
     }
 }
 

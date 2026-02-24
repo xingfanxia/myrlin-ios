@@ -83,11 +83,20 @@ struct DiscoveredProject: Codable, Identifiable {
     var lastActive: Date?
     var hasClaudeMd: Bool?
     var dirExists: Bool?
-    /// The most recent Claude session ID from JSONL — used for --resume on import.
-    var latestSessionId: String?
+    /// All JSONL sessions for this project, sorted newest-first by the server.
+    var sessions: [DiscoveredSession]?
+
+    /// The most recent Claude session UUID (JSONL filename without extension).
+    var latestSessionId: String? { sessions?.first?.name }
 
     // Use encodedName as stable ID
     var id: String { encodedName }
+}
+
+struct DiscoveredSession: Codable {
+    var name: String       // Claude session UUID (= JSONL filename without .jsonl)
+    var modified: Date?
+    var size: Int?
 }
 
 // MARK: - Tunnels
