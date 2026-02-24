@@ -107,16 +107,19 @@ final class MyrlinAPI {
 
     func createSession(name: String, workspaceId: String, workingDir: String? = nil,
                        model: String? = nil, bypassPermissions: Bool? = nil,
-                       verbose: Bool? = nil, agentTeams: Bool? = nil) async throws -> Session {
+                       verbose: Bool? = nil, agentTeams: Bool? = nil,
+                       claudeSessionId: String? = nil) async throws -> Session {
         struct Body: Encodable {
             let name: String; let workspaceId: String; let workingDir: String?
-            let model: String?; let bypassPermissions: Bool?; let verbose: Bool?; let agentTeams: Bool?
+            let model: String?; let bypassPermissions: Bool?; let verbose: Bool?
+            let agentTeams: Bool?; let claudeSessionId: String?
         }
         struct Wrapper: Decodable { let session: Session }
         let wrapper: Wrapper = try await request("/api/sessions", method: "POST",
             body: Body(name: name, workspaceId: workspaceId, workingDir: workingDir,
                        model: model, bypassPermissions: bypassPermissions,
-                       verbose: verbose, agentTeams: agentTeams))
+                       verbose: verbose, agentTeams: agentTeams,
+                       claudeSessionId: claudeSessionId))
         return wrapper.session
     }
 
@@ -361,14 +364,14 @@ final class MyrlinAPI {
     }
 
     func namedTunnel() async throws -> NamedTunnel {
-        let wrapper: NamedTunnel = try await request("/api/tunnel/named/status")
+        let wrapper: NamedTunnel = try await request("/api/tunnel/named")
         return wrapper
     }
 
     func configureNamedTunnel(token: String) async throws {
         struct Body: Encodable { let token: String }
         struct Empty: Decodable {}
-        let _: Empty = try await request("/api/tunnel/named/configure", method: "POST",
+        let _: Empty = try await request("/api/tunnel/named/config", method: "PUT",
             body: Body(token: token))
     }
 

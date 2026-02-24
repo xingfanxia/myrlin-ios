@@ -126,6 +126,13 @@ struct LoginView: View {
         }
         .onAppear {
             savedURLs = UserDefaults.standard.stringArray(forKey: "savedServerURLs") ?? []
+            // If the Keychain has a server URL that isn't in the saved list yet, seed it so
+            // the card appears immediately on first logout (before any successful login).
+            if let keychainURL = AuthService.shared.serverURL, !keychainURL.isEmpty,
+               !savedURLs.contains(keychainURL) {
+                saveServerURL(keychainURL)
+                savedURLs = UserDefaults.standard.stringArray(forKey: "savedServerURLs") ?? []
+            }
             if let saved = AuthService.shared.serverURL, !saved.isEmpty {
                 serverURL = saved
                 focusField = .password

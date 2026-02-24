@@ -6,7 +6,7 @@ struct SessionListView: View {
     @EnvironmentObject var appState: AppState
     @State private var showNewSession = false
     @State private var newSessionName = ""
-    @State private var newSessionModel = "claude-opus-4-5"
+    @State private var newSessionModel = "claude-opus-4-6"
     @State private var newSessionWorkingDir = ""
     @State private var newSessionBypassPerms = false
     @State private var newSessionVerbose = false
@@ -267,7 +267,7 @@ private extension View {
                     }
                     Section("Model") {
                         Picker("Model", selection: model) {
-                            Text("Opus 4.5 (recommended)").tag("claude-opus-4-5")
+                            Text("Opus 4.6 (recommended)").tag("claude-opus-4-6")
                             Text("Sonnet 4.6").tag("claude-sonnet-4-6")
                             Text("Haiku 4.5").tag("claude-haiku-4-5-20251001")
                         }

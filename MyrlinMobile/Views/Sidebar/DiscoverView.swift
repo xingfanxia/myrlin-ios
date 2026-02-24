@@ -9,6 +9,7 @@ struct DiscoverView: View {
     @State private var importing: Set<String> = []
     @State private var imported: Set<String> = []
     @State private var importErrors: [String: String] = [:]
+    @State private var importedWorkspaceNames: [String: String] = [:]
 
     var body: some View {
         Group {
@@ -55,8 +56,16 @@ struct DiscoverView: View {
                         }
                         Spacer()
                         if imported.contains(project.id) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                if let wsName = importedWorkspaceNames[project.id] {
+                                    Text(wsName)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
                         } else if importing.contains(project.id) {
                             ProgressView().scaleEffect(0.7)
                         } else {
@@ -103,7 +112,8 @@ struct DiscoverView: View {
         importErrors.removeValue(forKey: project.id)
         defer { importing.remove(project.id) }
         do {
-            let wsId = appState.workspaces.first?.id ?? ""
+            let workspace = appState.workspaces.first
+            let wsId = workspace?.id ?? ""
             let workingDir: String? = project.realPath.hasPrefix("/") ? project.realPath : nil
             let name: String = {
                 if project.realPath.hasPrefix("/") {
@@ -115,13 +125,15 @@ struct DiscoverView: View {
             let created = try await MyrlinAPI.shared.createSession(
                 name: name,
                 workspaceId: wsId,
-                workingDir: workingDir
+                workingDir: workingDir,
+                claudeSessionId: project.latestSessionId
             )
             try? await MyrlinAPI.shared.startSession(created.id)
             var launched = created
             launched.status = .running
             appState.sessions.append(launched)
             imported.insert(project.id)
+            importedWorkspaceNames[project.id] = workspace?.name ?? "first workspace"
         } catch {
             importErrors[project.id] = error.localizedDescription
         }
